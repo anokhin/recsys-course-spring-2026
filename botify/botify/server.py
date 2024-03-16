@@ -13,7 +13,7 @@ from botify.data import DataLogger, Datum
 from botify.experiment import Experiments, Treatment
 from botify.recommenders.Indexed import Indexed
 from botify.recommenders.random import Random
-from botify.recommenders.sticky_artist import StickyArtist
+from botify.recommenders.contextual import Contextual
 from botify.recommenders.toppop import TopPop
 from botify.track import Catalog
 
@@ -29,6 +29,7 @@ artists_redis = Redis(app, config_prefix="REDIS_ARTIST")
 recommendations_ub = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_UB")
 recommendations_lfm = Redis(app, config_prefix="REDIS_RECOMMENDATIONS")
 recommendations_dssm = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_DSSM")
+recommendations_contextual = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_CONTEXTUAL")
 
 data_logger = DataLogger(app)
 
@@ -43,6 +44,10 @@ catalog.upload_recommendations(
 )
 catalog.upload_recommendations(
     recommendations_dssm.connection, "RECOMMENDATIONS_DSSM_FILE_PATH"
+)
+catalog.upload_recommendations(
+    recommendations_contextual, "RECOMMENDATIONS_CONTEXTUAL_FILE_PATH",
+    key_object='track', key_recommendations='recommendations'
 )
 
 top_tracks = TopPop.load_from_json(app.config["TOP_TRACKS"])
