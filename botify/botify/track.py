@@ -56,7 +56,7 @@ class Catalog:
 
         self.app.logger.info(f"Uploaded {j + 1} artists")
 
-    def upload_recommendations(self, redis, redis_config_key):
+    def upload_recommendations(self, redis, redis_config_key, key_object='user', key_recommendations='tracks'):
         recommendations_file_path = self.app.config[redis_config_key]
         self.app.logger.info(
             f"Uploading recommendations from {recommendations_file_path} to redis"
@@ -66,11 +66,11 @@ class Catalog:
             for line in rf:
                 recommendations = json.loads(line)
                 redis.set(
-                    recommendations["user"], self.to_bytes(recommendations["tracks"])
+                    recommendations[key_object], self.to_bytes(recommendations[key_recommendations])
                 )
                 j += 1
         self.app.logger.info(
-            f"Uploaded recommendations from {recommendations_file_path} for {j} users"
+            f"Uploaded recommendations from {recommendations_file_path} for {j} {key_object}"
         )
 
     def to_bytes(self, instance):
