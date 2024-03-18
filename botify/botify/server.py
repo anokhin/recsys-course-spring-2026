@@ -80,14 +80,14 @@ class NextTrack(Resource):
 
         args = parser.parse_args()
 
-        treatment = Experiments.DSSM.assign(user)
+        treatment = Experiments.CONTEXTUAL.assign(user)
         if treatment == Treatment.T1:
-            recommender = Indexed(
-                recommendations_dssm.connection, catalog, Random(tracks_redis)
+            recommender = Contextual(
+                recommendations_contextual.connection, catalog, Random(tracks_redis)
             )
         else:
             recommender = Indexed(
-                recommendations_lfm.connection, catalog, Random(tracks_redis)
+                recommendations_dssm.connection, catalog, Random(tracks_redis)
             )
 
         recommendation = recommender.recommend_next(user, args.track, args.time)
