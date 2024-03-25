@@ -30,6 +30,7 @@ recommendations_ub = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_UB")
 recommendations_lfm = Redis(app, config_prefix="REDIS_RECOMMENDATIONS")
 recommendations_dssm = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_DSSM")
 recommendations_contextual = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_CONTEXTUAL")
+recommendations_gcf = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_GCF")
 
 data_logger = DataLogger(app)
 
@@ -48,6 +49,9 @@ catalog.upload_recommendations(
 catalog.upload_recommendations(
     recommendations_contextual, "RECOMMENDATIONS_CONTEXTUAL_FILE_PATH",
     key_object='track', key_recommendations='recommendations'
+)
+catalog.upload_recommendations(
+    recommendations_gcf, "RECOMMENDATIONS_GCF_FILE_PATH"
 )
 
 top_tracks = TopPop.load_from_json(app.config["TOP_TRACKS"])
@@ -80,10 +84,10 @@ class NextTrack(Resource):
 
         args = parser.parse_args()
 
-        treatment = Experiments.CONTEXTUAL.assign(user)
+        treatment = Experiments.GCF.assign(user)
         if treatment == Treatment.T1:
-            recommender = Contextual(
-                recommendations_contextual.connection, catalog, Random(tracks_redis)
+            recommender = Indexed(
+                recommendations_gcf.connection, catalog, Random(tracks_redis)
             )
         else:
             recommender = Indexed(
