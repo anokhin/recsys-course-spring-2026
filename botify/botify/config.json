@@ -30,7 +30,7 @@
   "RECOMMENDATIONS_DSSM_FILE_PATH": "./data/recommendations_dssm.json",
   "RECOMMENDATIONS_GCF_FILE_PATH": "./data/recommendations_gcf.json",
   "RECOMMENDATIONS_CONTEXTUAL_FILE_PATH": "./data/recommendations_contextual.json",
-  "TRACKS_WITH_DIVERSE_RECS_CATALOG": "./data/recommendations_20_5.json",
+  "TRACKS_WITH_DIVERSE_RECS_CATALOG_FILE_PATH": "./data/recommendations_20_5.json",
   "DATA_LOG_FILE": "./log/data.json",
   "DATA_LOG_FILE_MAX_BYTES": 104857600,
   "DATA_LOG_FILE_BACKUP_COPIES": 10
