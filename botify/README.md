@@ -17,7 +17,7 @@
    ```   
 1. Смотрим логи рекомендера
    ```
-   docker logs botify_recommender_n
+   docker logs botify-recommender-n
    ```
 1. Останавливаем контейнеры
    ```
@@ -29,28 +29,34 @@
 ## Полезные команды
 Проверяем, что сервис жив
 ```
-curl http://localhost:5000/
+curl http://localhost:5001/
 ```
 Запрашиваем информацию по треку
 ```
-curl http://localhost:5000/track/42
+curl http://localhost:5001/track/42
 ```
 Запрашиваем следующий трек
 ```
-curl -H "Content-Type: application/json" -X POST -d '{"track":10,"time":0.3}'  http://localhost:5000/next/1
+curl -H "Content-Type: application/json" -X POST -d '{"track":10,"time":0.3}'  http://localhost:5001/next/1
 ```
 Завершаем пользовательскую сессию
 ```
-curl -H "Content-Type: application/json" -X POST -d '{"track":10,"time":0.3}'  http://localhost:5000/last/1
+curl -H "Content-Type: application/json" -X POST -d '{"track":10,"time":0.3}'  http://localhost:5001/last/1
 ```
 Скачиваем логи пользовательских сессии с контейнера
 ```
-docker cp botify_recommender_n:/app/log/ /tmp/
+docker cp botify-recommender-n:/app/log/ /tmp/
+```
+Скачиваем логи пользовательских сессий со всех контейнеров
+```
+python dataclient.py --recommender N log2local ~/Desktop/data
 ```
 Мониторим загрузку хостов
 ```
-docker stats botify_recommender_1 botify_nginx_1 redis-container
+docker stats botify-recommender-1 botify-nginx-1 redis-container
 ```
+
+<!--- Закоментированное относится к варианту курса со spark-кластером
 ## Работа на удаленном сервере
 Заходим на сервер по ssh, прокидываем порт
 ```
@@ -135,3 +141,4 @@ hadoop fs -ls /user/dnikanorova/my_remote_dir
 ```
 hadoop fs -du -h /user/dnikanorova/my_remote_dir
 ```
+-->

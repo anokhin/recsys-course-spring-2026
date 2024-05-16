@@ -12,10 +12,10 @@ from gevent.pywsgi import WSGIServer
 from botify.data import DataLogger, Datum
 from botify.experiment import Experiments, Treatment
 from botify.recommenders.Indexed import Indexed
-from botify.recommenders.contextual import Contextual
 from botify.recommenders.random import Random
-from botify.recommenders.sticky_artist import StickyArtist
+from botify.recommenders.contextual import Contextual
 from botify.recommenders.toppop import TopPop
+from botify.recommenders.sticky_artist import StickyArtist
 from botify.track import Catalog
 
 root = logging.getLogger()
@@ -25,32 +25,39 @@ app = Flask(__name__)
 app.config.from_file("config.json", load=json.load)
 api = Api(app)
 
-# TODO Seminar 8 step 3: Create redis DB with tracks with diverse recommendations
 tracks_redis = Redis(app, config_prefix="REDIS_TRACKS")
 artists_redis = Redis(app, config_prefix="REDIS_ARTIST")
-recommendations_ub_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_UB")
-recommendations_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS")
-recommendations_ncf_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_NCF")
-recommendations_gcf_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_GCF")
-tracks_with_diverse_recs_redis = Redis(app, config_prefix="REDIS_TRACKS_WITH_DIVERSE_RECS")
+recommendations_ub = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_UB")
+recommendations_lfm = Redis(app, config_prefix="REDIS_RECOMMENDATIONS")
+recommendations_dssm = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_DSSM")
+recommendations_contextual = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_CONTEXTUAL")
+recommendations_gcf = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_GCF")
+recommendations_div = Redis(app, config_prefix="REDIS_TRACKS_WITH_DIVERSE_RECS")
 
 data_logger = DataLogger(app)
 
-# TODO Seminar 8 step 4: Upload tracks with diverse recommendations to redis DB
-catalog = Catalog(app).load(app.config["TRACKS_CATALOG"], app.config["TRACKS_WITH_DIVERSE_RECS_CATALOG"])
-catalog.upload_tracks(tracks_redis.connection, tracks_with_diverse_recs_redis.connection)
+catalog = Catalog(app).load(app.config["TRACKS_CATALOG"])
+catalog.upload_tracks(tracks_redis.connection)
 catalog.upload_artists(artists_redis.connection)
 catalog.upload_recommendations(
-    recommendations_ub_redis.connection, "RECOMMENDATIONS_UB_FILE_PATH"
+    recommendations_ub.connection, "RECOMMENDATIONS_UB_FILE_PATH"
 )
 catalog.upload_recommendations(
-    recommendations_redis.connection, "RECOMMENDATIONS_FILE_PATH"
+    recommendations_lfm.connection, "RECOMMENDATIONS_FILE_PATH"
 )
 catalog.upload_recommendations(
-    recommendations_ncf_redis.connection, "RECOMMENDATIONS_NCF_FILE_PATH"
+    recommendations_dssm.connection, "RECOMMENDATIONS_DSSM_FILE_PATH"
 )
 catalog.upload_recommendations(
-    recommendations_gcf_redis.connection, "RECOMMENDATIONS_GCF_FILE_PATH"
+    recommendations_contextual, "RECOMMENDATIONS_CONTEXTUAL_FILE_PATH",
+    key_object='track', key_recommendations='recommendations'
+)
+catalog.upload_recommendations(
+    recommendations_gcf, "RECOMMENDATIONS_GCF_FILE_PATH"
+)
+catalog.upload_recommendations(
+    recommendations_div, "TRACKS_WITH_DIVERSE_RECS_CATALOG_FILE_PATH",
+    key_object='track', key_recommendations='recommendations'
 )
 
 top_tracks = TopPop.load_from_json(app.config["TOP_TRACKS"])
@@ -83,25 +90,20 @@ class NextTrack(Resource):
 
         args = parser.parse_args()
 
-        # TODO Seminar 8 step 6: Wire RECOMMENDERS A/B experiment
-        fallback = Random(tracks_redis.connection)
-        treatment = Experiments.RECOMMENDERS.assign(user)
+        treatment = Experiments.ALL.assign(user)
+
         if treatment == Treatment.T1:
             recommender = StickyArtist(tracks_redis.connection, artists_redis.connection, catalog)
         elif treatment == Treatment.T2:
-            recommender = TopPop(top_tracks[:100], fallback)
+            recommender = TopPop(catalog.top_tracks[:100], Random(tracks_redis.connection))
         elif treatment == Treatment.T3:
-            recommender = Indexed(recommendations_ub_redis.connection, catalog, fallback)
+            recommender = Indexed(recommendations_lfm.connection, catalog, Random(tracks_redis.connection))
         elif treatment == Treatment.T4:
-            recommender = Indexed(recommendations_redis, catalog, fallback)
+            recommender = Indexed(recommendations_dssm.connection, catalog, Random(tracks_redis.connection))
         elif treatment == Treatment.T5:
-            recommender = Indexed(recommendations_ncf_redis.connection, catalog, fallback)
+            recommender = Contextual(recommendations_contextual.connection, catalog, Random(tracks_redis.connection))
         elif treatment == Treatment.T6:
-            recommender = Contextual(tracks_redis.connection, catalog)
-        elif treatment == Treatment.T7:
-            recommender = Indexed(recommendations_gcf_redis.connection, catalog, fallback)
-        elif treatment == Treatment.T8:
-            recommender = Contextual(tracks_with_diverse_recs_redis.connection, catalog)
+            recommender = Contextual(recommendations_div.connection, catalog, Random(tracks_redis.connection))
         else:
             recommender = Random(tracks_redis.connection)
 

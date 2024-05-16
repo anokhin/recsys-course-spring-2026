@@ -14,13 +14,13 @@
 
 ## Инструкция
 
-1. Создаем чистый env с python 3.7. На примере conda:
+1. Создаем чистый env с python 3.8. На примере conda:
    ```
-   conda create -n mobod-2023 python==3.7
+   conda create -n recsys-2024 python==3.8
    ``` 
 2. Активириуем окружение:
    ``` 
-   conda activate venv-mobod-2023
+   conda activate recsys-2024
    ``` 
 3. Устанавливаем зависимости
    ```

@@ -20,8 +20,7 @@
 \definecolor{warn}{RGB}{128, 0, 0}
 
 \author{Николай Анохин}
-\title{МОБОД-2023}
-\subtitle{Рекомендательные сервисы в продакшене}
+\title{Рекомендательные сервисы в продакшене}
 
 \logo{\includegraphics[width=.05\textwidth]{images/ok_logo.png}}
 
@@ -55,10 +54,24 @@
 
 \begin{frame}{Входной опрос}
 
-\begin{center}
-\includegraphics[scale=0.5]{images/please.jpeg}
+\begin{columns}
 
-\url{https://shorturl.at/jvxzY}
+\begin{column}{0.45\textwidth}
+   \begin{center}
+   \includegraphics[scale=0.4]{images/please.jpeg}
+   \end{center}
+\end{column}
+
+\begin{column}{0.45\textwidth}
+  \begin{center}
+  \includegraphics[scale=0.5]{images/survey.png}
+  \end{center}
+\end{column}
+
+\end{columns}
+
+\begin{center}
+\url{https://shorturl.at/cilGK}
 \end{center}
 
 \end{frame}
@@ -71,17 +84,19 @@
 
 \end{frame}
 
-\begin{frame}{Дарья Никанорова}
+\begin{frame}{Петр Погорелов}
 
 \begin{center}
-\includegraphics[scale=0.23]{images/about-me-dasha.jpeg}
+\includegraphics[scale=0.23]{images/about-me-petr.png}
 \end{center}
 
 \end{frame}
 
-\begin{frame}{Telegram}
+\begin{frame}{Группа в VK}
 
-Чат курса: \url{https://t.me/+b66BQ4PCWro5M2Ey}
+Репозиторий: \url{https://github.com/anokhin/recsys-course-spring-2024}
+
+Чат курса: \url{https://vk.me/join/u9Gx_wG11G/ECCZIJrNcniOADT3GBTpFDa0=}
 
 \vfill
 
@@ -295,7 +310,6 @@ Recommender Systems Handbook \cite{RSHB}, Mining of Massive datasets \cite{MMDS}
 
 \begin{itemize}
 \item Разработаете свой рекомендательный сервис (почти) с нуля
-\item Научитесь использовать Spark для нужд RS
 \item Сможете выбирать правильные инструменты под конкретную задачу
 \item Узнаете о проблемах, возникающих в боевых RS, и научитесь их решать
 \item Будете в курсе SOTA моделей и задач RS, над которыми работают ученые
@@ -333,7 +347,6 @@ Recommender Systems Handbook \cite{RSHB}, Mining of Massive datasets \cite{MMDS}
 \begin{itemize}
 \item Знание языка python.
 \item Знакомство с архитектурой высоконагруженных сервисов (БД + Big Data).
-\item Умение писать простые запросы на PySpark.
 \item Знакомство с Docker, умение запустить контейнер.
 \item Умение пользоваться git.
 \end{itemize}
@@ -343,8 +356,6 @@ Recommender Systems Handbook \cite{RSHB}, Mining of Massive datasets \cite{MMDS}
 \end{frame}
 
 \begin{frame}{Программа модуля}
-
-Репозиторий: \url{https://gitlab.atp-fivt.org/courses-public/mobod/public}
 
 \vfill
 
@@ -358,8 +369,8 @@ Recommender Systems Handbook \cite{RSHB}, Mining of Massive datasets \cite{MMDS}
 3 & Классические алгоритмы 1 & \checked  & \checked & \\
 4 & Классические алгоритмы 2 & \checked  & \checked & \checked  \\
 5 & Нейросетевые рекомендеры 1: отбор кандидатов & \checked  & \checked &  \\
-6 & Нейросетевые рекомендеры 2: ранжирование & \checked  & \checked & \checked \\
-7 & GNN в рекомендациях & \checked  & \checked &  \\
+6 & Нейросетевые рекомендеры 2: ранжирование & \checked  & \checked & \\
+7 & GNN в рекомендациях & \checked  & \checked & \checked \\
 8 & Нерешенные проблемы и новые направления & \checked  &  \checked & \\
 9 & Рекомендации и Reinforcement Learning & \checked  & \checked & 
 \end{tabular}

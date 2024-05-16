@@ -339,6 +339,22 @@ SLIM \cite{SLIM} / EASE \cite{EASE}
 
 \end{frame}
 
+\begin{frame}{Implicit ALS (iALS) \cite{iALS}}
+\begin{tcolorbox}[colback=info!5,colframe=info!80,title=]
+Давайте обучим модель на implicit feedback, но вместо семплирования implicit негативных примеров - используем вообще все негативные примеры.
+\end{tcolorbox}
+
+\[
+\mathcal{L} = \sum_{(u, i) \in S} ((q_i^Tp_u) - 1)^2 + \alpha\sum_{u \in U} \sum_{i \in I} (q_i^Tp_u)^2 + \lambda R(P,Q)
+\]
+\[
+R(P,Q) = \sum_{u \in U} (U(i) + \alpha|U|)||p_u||_F + \sum_{i \in I} (I(u) + \alpha|I|)||q_i||_F
+\]
+
+При расчете аналитических решений для векторов $p_u$, $q_i$ - значительная часть вычислений является общей. Eë нужно посчитать только один раз и дальше перееиспользовать в рамках одного шага ALS.
+
+\end{frame}
+
 \begin{frame}{}
 
 \begin{tcolorbox}[colback=info!5,colframe=info!80,title=Плюсы]

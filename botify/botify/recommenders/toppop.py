@@ -1,7 +1,9 @@
 import json
-import numpy
 
 from typing import List
+
+import numpy
+
 from .recommender import Recommender
 
 

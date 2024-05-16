@@ -22,7 +22,7 @@ class StickyArtist(Recommender):
         if artist_data is not None:
             artist_tracks = self.catalog.from_bytes(artist_data)
         else:
-            raise ValueError(f"Artist not found for track: {prev_track}")
+            return self.fallback.recommend_next(user, prev_track, prev_track_time)
 
         index = random.randint(0, len(artist_tracks) - 1)
         return artist_tracks[index]

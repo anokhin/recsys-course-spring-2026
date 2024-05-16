@@ -40,7 +40,9 @@ def run_ssh(
         print(out)
 
 
-def upload_logs_to_hdfs(command_args, passwd):
+def upload_logs_to_hdfs(command_args):
+    password = getpass(f"{HOST} password for {args.user}:")
+
     target_hdfs_dir = f"/user/{command_args.user}/{command_args.hdfs_dir[0]}"
     print(
         f"## Uploading data from {command_args.log_dir} to {target_hdfs_dir} on behalf of {command_args.user} for {command_args.recommender} recommenders"
@@ -49,15 +51,16 @@ def upload_logs_to_hdfs(command_args, passwd):
     local_tmp_dir = tempfile.mkdtemp()
     remote_temp_dir = "tmp/" + str(int(time.time()))
 
-    recommenders = [f"botify_recommender_{i}" for i in range(1, command_args.recommender + 1)]
+    recommenders = [
+        f"botify-recommender-{i}" for i in range(1, command_args.recommender + 1)
+    ]
 
     ssh = None
     try:
         for recommender in recommenders:
             path = os.path.join(local_tmp_dir, recommender)
             run_docker(
-                f"docker cp {recommender}:{command_args.log_dir} {path}",
-                args.echo,
+                f"docker cp {recommender}:{command_args.log_dir} {path}", args.echo,
             )
 
         ssh = paramiko.SSHClient()
@@ -96,10 +99,34 @@ def upload_logs_to_hdfs(command_args, passwd):
             ssh.close()
 
 
+def download_logs(command_args):
+    local_dir = command_args.local_dir[0]
+
+    print(
+        f"## Downloading data from {command_args.log_dir} to {local_dir} for {command_args.recommender} recommenders"
+    )
+
+    if os.path.exists(local_dir):
+        os.rmdir(local_dir)
+    os.makedirs(local_dir)
+
+    recommenders = [
+        f"botify-recommender-{i}" for i in range(1, command_args.recommender + 1)
+    ]
+
+    for recommender in recommenders:
+        path = os.path.join(local_dir, recommender)
+        run_docker(
+            f"docker cp {recommender}:{command_args.log_dir} {path}", args.echo,
+        )
+
+    print(f"## Finished: {os.listdir(local_dir)}")
+
+
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--user", help=f"Login used to access {HOST}", type=str, required=True,
+        "--user", help=f"Login used to access {HOST}", type=str, required=False,
     )
     parser.add_argument(
         "--recommender",
@@ -115,6 +142,7 @@ def parse_args():
     )
 
     subparsers = parser.add_subparsers()
+
     log_2_hdfs = subparsers.add_parser(
         "log2hdfs", help="Upload recommender logs to HDFS"
     )
@@ -135,10 +163,23 @@ def parse_args():
     )
     log_2_hdfs.set_defaults(func=upload_logs_to_hdfs)
 
+    log2_local = subparsers.add_parser(
+        "log2local", help="Upload recommender logs to local drive"
+    )
+    log2_local.add_argument(
+        "--log-dir",
+        help="Directory containing the uploaded log files",
+        type=str,
+        default="/app/log/.",
+    )
+    log2_local.add_argument(
+        "local_dir", help="Target local directory", type=str, nargs=1,
+    )
+    log2_local.set_defaults(func=download_logs)
+
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = parse_args()
-    password = getpass(f"{HOST} password for {args.user}:")
-    args.func(args, password)
+    args.func(args)
