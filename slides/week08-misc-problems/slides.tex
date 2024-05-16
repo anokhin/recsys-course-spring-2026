@@ -85,8 +85,8 @@
 Проблемы
 \begin{enumerate}[<+->]
 \item Оцениваем айтемы по-отдельности, а показываем по несколько (лентой)
-\item Модель не объясняет, почему именно эти айтемы подходят пользователю
 \item Смещение между распределениями на обучении и применении
+\item Модель не объясняет, почему именно эти айтемы подходят пользователю
 \item {\color{blue} Не учитывается долгострочный эффект рекомендаций}
 \end{enumerate}
 
@@ -217,6 +217,84 @@ Learning To Rank Diversely At Airbnb \cite{AIRBNB2}
 
 \begin{tcolorbox}[colback=info!5,colframe=info!80,title=]
 Необходимость разнообразия обосновывается A/B экспериментом
+\end{tcolorbox}
+
+\end{frame}
+
+\section{Смещения}
+
+\begin{frame}{Удачные рекомендации}
+
+\begin{center}
+\includegraphics[scale=0.22]{images/serendipity-pony.png}
+\end{center}
+
+\end{frame}
+
+\begin{frame}{Смещения в рекомендациях \cite{BIAS}}
+
+\begin{center}
+\includegraphics[scale=0.2]{images/bias.png}
+\end{center}
+
+\end{frame}
+
+\begin{frame}{Пример self-selection bias}
+
+\begin{center}
+\includegraphics[scale=0.3]{images/bias-example.png}
+\end{center}
+
+\[
+R(\hat Y) = \frac{1}{U I} \sum_u \sum_i \delta_{ui} (Y, \hat Y), \quad R_{naive}(\hat Y) = \frac{1}{N} \sum_{(u,i) \in D} \delta_{ui}(Y, \hat Y)
+\]
+
+\end{frame}
+
+\begin{frame}{Inverse Propensity Scored Estimator \cite{TREATMENTS}}
+
+$P_{ui} = P((u, i) \in D)$ -- вероятность, что пользователь $u$ поставит оценку айтему $i$
+
+\[
+R_{IPS}(\hat Y | P) = \frac{1}{U I} \sum_{(u,i) \in D} \frac{\delta_{ui}(Y, \hat Y)}{P_{ui}}
+\]
+
+\[
+E_D [R_{IPS}(\hat Y | P)] = \frac{1}{U I} \sum_u \sum_i E_D\left[ \frac{\delta_{ui}(Y, \hat Y)}{P_{ui}} \mathbb{I}\{(u, i) \in D\}\right] = 
+\]
+\[
+= \frac{1}{U I} \sum_u \sum_i \delta_{ui} (Y, \hat Y) = R(\hat Y) 
+\]
+
+\end{frame}
+
+\begin{frame}{IPS Estimator: проблемы}
+
+\begin{enumerate}
+\item Когда $P_{ui}$ неизвестно, его приходится оценивать
+\item Большая дисперсия при оценке $P_{ui}$
+\item Непонятно, как быть с рекомендациями списков
+\end{enumerate}
+
+\end{frame}
+
+\begin{frame}{Recommending What Video to Watch Next: A Multitask Ranking System \cite{YT}}
+
+\begin{center}
+\includegraphics[scale=0.2]{images/multitask.png}
+\end{center}
+
+{\bf Идея.} При обучении модель ``видит'' признак-позицию айтема, а при инференсе признак зануляется. 
+
+\end{frame}
+
+\begin{frame}
+
+\begin{tcolorbox}[colback=info!5,colframe=info!80,title=]
+Из-за специфики сбора данных рекомендации подвержены смещениям. 
+\end{tcolorbox}
+\begin{tcolorbox}[colback=info!5,colframe=info!80,title=]
+Существуют техники для корректировки, но они несовершенны.
 \end{tcolorbox}
 
 \end{frame}
@@ -363,83 +441,6 @@ r(j, e, x) = \sigma(\theta_{global} + \theta_{j} \times 1_j + \theta_e \times 1_
 
 \end{frame}
 
-\section{Смещения}
-
-\begin{frame}{Удачные рекомендации}
-
-\begin{center}
-\includegraphics[scale=0.22]{images/serendipity-pony.png}
-\end{center}
-
-\end{frame}
-
-\begin{frame}{Смещения в рекомендациях \cite{BIAS}}
-
-\begin{center}
-\includegraphics[scale=0.2]{images/bias.png}
-\end{center}
-
-\end{frame}
-
-\begin{frame}{Пример self-selection bias}
-
-\begin{center}
-\includegraphics[scale=0.3]{images/bias-example.png}
-\end{center}
-
-\[
-R(\hat Y) = \frac{1}{U I} \sum_u \sum_i \delta_{ui} (Y, \hat Y), \quad R_{naive}(\hat Y) = \frac{1}{N} \sum_{(u,i) \in D} \delta_{ui}(Y, \hat Y)
-\]
-
-\end{frame}
-
-\begin{frame}{Inverse Propensity Scored Estimator \cite{TREATMENTS}}
-
-$P_{ui} = P((u, i) \in D)$ -- вероятность, что пользователь $u$ поставит оценку айтему $i$
-
-\[
-R_{IPS}(\hat Y | P) = \frac{1}{U I} \sum_{(u,i) \in D} \frac{\delta_{ui}(Y, \hat Y)}{P_{ui}}
-\]
-
-\[
-E_D [R_{IPS}(\hat Y | P)] = \frac{1}{U I} \sum_u \sum_i E_D\left[ \frac{\delta_{ui}(Y, \hat Y)}{P_{ui}} \mathbb{I}\{(u, i) \in D\}\right] = 
-\]
-\[
-= \frac{1}{U I} \sum_u \sum_i \delta_{ui} (Y, \hat Y) = R(\hat Y) 
-\]
-
-\end{frame}
-
-\begin{frame}{IPS Estimator: проблемы}
-
-\begin{enumerate}
-\item Когда $P_{ui}$ неизвестно, его приходится оценивать
-\item Большая дисперсия при оценке $P_{ui}$
-\item Непонятно, как быть с рекомендациями списков
-\end{enumerate}
-
-\end{frame}
-
-\begin{frame}{Recommending What Video to Watch Next: A Multitask Ranking System \cite{YT}}
-
-\begin{center}
-\includegraphics[scale=0.2]{images/multitask.png}
-\end{center}
-
-{\bf Идея.} При обучении модель ``видит'' признак-позицию айтема, а при инференсе признак зануляется. 
-
-\end{frame}
-
-\begin{frame}
-
-\begin{tcolorbox}[colback=info!5,colframe=info!80,title=]
-Из-за специфики сбора данных рекомендации подвержены смещениям. 
-\end{tcolorbox}
-\begin{tcolorbox}[colback=info!5,colframe=info!80,title=]
-Существуют техники для корректировки, но они несовершенны.
-\end{tcolorbox}
-
-\end{frame}
 
 \section{Итоги}
 
