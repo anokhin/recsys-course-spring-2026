@@ -11,9 +11,9 @@ faiss-cpu==1.7.1.post2
 Flask==2.0.1
 Flask-And-Redis==1.0.0
 Flask-RESTful==0.3.9
-gym==0.20.0
+gym==0.22.0
 idna==3.2
-importlib-metadata==4.8.1
+importlib-metadata==4.10.0
 itsdangerous==2.0.1
 Jinja2==3.0.1
 MarkupSafe==2.0.1
