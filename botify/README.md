@@ -56,7 +56,6 @@ python dataclient.py --recommender N log2local ~/Desktop/data
 docker stats botify-recommender-1 botify-nginx-1 redis-container
 ```
 
-<!--- Закоментированное относится к варианту курса со spark-кластером
 ## Работа на удаленном сервере
 Заходим на сервер по ssh, прокидываем порт
 ```
@@ -91,6 +90,10 @@ http://localhost:16006/
 ```
 
 ## Создание окружения на удаленном сервере
+Работаем с python3.4
+```
+export PYSPARK_PYTHON=/usr/bin/python3.4
+```
 Создаем окружение на сервере (используйте именно virtualenv)
 ```
 virtualenv -p /usr/bin/python3.6 envs/mobod-2023
@@ -141,4 +144,3 @@ hadoop fs -ls /user/dnikanorova/my_remote_dir
 ```
 hadoop fs -du -h /user/dnikanorova/my_remote_dir
 ```
--->
