@@ -47,8 +47,12 @@ class Catalog:
 
     def upload_artists(self, redis):
         self.app.logger.info(f"Uploading artists to redis")
-        # TODO Seminar 1 step 2: implement method to upload artists tracks to redis
         uploaded = 0
+        sorted_tracks = sorted(self.tracks, key=lambda track: track.artist)
+        for artist, tracks in itertools.groupby(sorted_tracks, key=lambda track: track.artist):
+            redis.set(artist, self.to_bytes([track.track for track in tracks]))
+            uploaded += 1
+
         self.app.logger.info(f"Uploaded {uploaded} artists")
 
     def to_bytes(self, instance):
