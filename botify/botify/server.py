@@ -1,6 +1,5 @@
 import json
 import logging
-import random
 import time
 from dataclasses import asdict
 from datetime import datetime
@@ -11,9 +10,10 @@ from flask_restful import Resource, Api, abort, reqparse
 from gevent.pywsgi import WSGIServer
 
 from botify.data import DataLogger, Datum
-from botify.experiment import Experiments
+from botify.experiment import Experiments, Treatment
 from botify.recommenders.random import Random
 from botify.recommenders.sticky_artist import StickyArtist
+from botify.recommenders.toppop import TopPop
 from botify.track import Catalog
 
 root = logging.getLogger()
@@ -32,7 +32,7 @@ catalog = Catalog(app).load(app.config["TRACKS_CATALOG"])
 catalog.upload_tracks(tracks_redis.connection)
 catalog.upload_artists(artists_redis.connection)
 
-# TODO 2.1: Load top tracks from file
+top_tracks = TopPop.load_from_json(app.config["TOP_TRACKS"])
 
 parser = reqparse.RequestParser()
 parser.add_argument("track", type=int, location="json", required=True)
@@ -61,15 +61,19 @@ class NextTrack(Resource):
         start = time.time()
 
         args = parser.parse_args()
-        treatment = Experiments.STICKY_ARTIST.assign(user)
 
-        # TODO 3.2: Wire TOP_POP experiment
-        if random.random() < 0.9:
+        fallback = Random(tracks_redis.connection)
+        treatment = Experiments.TOP_POP.assign(user)
+        if treatment == Treatment.T1:
+            recommender = TopPop(top_tracks[:10], fallback)
+        elif treatment == Treatment.T2:
+            recommender = TopPop(top_tracks[:100], fallback)
+        elif treatment == Treatment.T3:
+            recommender = TopPop(top_tracks[:1000], fallback)
+        else:
             recommender = StickyArtist(
                 tracks_redis.connection, artists_redis.connection, catalog
             )
-        else:
-            recommender = Random(tracks_redis.connection)
 
         recommendation = recommender.recommend_next(user, args.track, args.time)
 
