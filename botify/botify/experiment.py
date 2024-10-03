@@ -64,7 +64,7 @@ class Experiments:
     AA = Experiment("AA", Split.HALF_HALF)
     STICKY_ARTIST = Experiment("STICKY_ARTIST", Split.HALF_HALF)
     TOP_POP = Experiment("TOP_POP", Split.FOUR_WAY)
-    # TODO 3.1
+    USER_BASED = Experiment("USER_BASED", Split.HALF_HALF)
 
     def __init__(self):
-        self.experiments = [Experiments.TOP_POP]
+        self.experiments = [Experiments.USER_BASED]

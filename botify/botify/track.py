@@ -57,7 +57,6 @@ class Catalog:
 
         self.app.logger.info(f"Uploaded {uploaded} artists")
 
-    # TODO 2.1
     def upload_recommendations(
         self, redis, redis_config_key, key_object="user", key_recommendations="tracks"
     ):
