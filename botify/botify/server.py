@@ -26,11 +26,17 @@ api = Api(app)
 tracks_redis = Redis(app, config_prefix="REDIS_TRACKS")
 artists_redis = Redis(app, config_prefix="REDIS_ARTIST")
 
+recommendations_ub = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_UB")
+
 data_logger = DataLogger(app)
 
 catalog = Catalog(app).load(app.config["TRACKS_CATALOG"])
 catalog.upload_tracks(tracks_redis.connection)
 catalog.upload_artists(artists_redis.connection)
+# TODO 2.2
+# catalog.upload_recommendations(
+#     recommendations_ub.connection, "RECOMMENDATIONS_UB_FILE_PATH"
+# )
 
 top_tracks = TopPop.load_from_json(app.config["TOP_TRACKS"])
 
@@ -61,6 +67,8 @@ class NextTrack(Resource):
         start = time.time()
 
         args = parser.parse_args()
+
+        # TODO 3.2
 
         fallback = Random(tracks_redis.connection)
         treatment = Experiments.TOP_POP.assign(user)
