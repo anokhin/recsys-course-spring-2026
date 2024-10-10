@@ -28,6 +28,7 @@ tracks_redis = Redis(app, config_prefix="REDIS_TRACKS")
 artists_redis = Redis(app, config_prefix="REDIS_ARTIST")
 
 recommendations_ub = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_UB")
+# TODO 2.1 Load recommendations
 
 data_logger = DataLogger(app)
 
@@ -68,6 +69,7 @@ class NextTrack(Resource):
 
         args = parser.parse_args()
 
+        # TODO 3.2
         fallback = Random(tracks_redis.connection)
         treatment = Experiments.USER_BASED.assign(user)
         if treatment == Treatment.T1:
