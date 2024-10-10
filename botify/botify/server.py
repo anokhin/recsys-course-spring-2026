@@ -28,7 +28,8 @@ tracks_redis = Redis(app, config_prefix="REDIS_TRACKS")
 artists_redis = Redis(app, config_prefix="REDIS_ARTIST")
 
 recommendations_ub = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_UB")
-# TODO 2.1 Load recommendations
+recommendations_als = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_ALS")
+recommendations_lfm = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_LFM")
 
 data_logger = DataLogger(app)
 
@@ -37,6 +38,12 @@ catalog.upload_tracks(tracks_redis.connection)
 catalog.upload_artists(artists_redis.connection)
 catalog.upload_recommendations(
     recommendations_ub.connection, "RECOMMENDATIONS_UB_FILE_PATH"
+)
+catalog.upload_recommendations(
+    recommendations_als.connection, "RECOMMENDATIONS_ALS_FILE_PATH"
+)
+catalog.upload_recommendations(
+    recommendations_lfm.connection, "RECOMMENDATIONS_LFM_FILE_PATH"
 )
 
 top_tracks = TopPop.load_from_json(app.config["TOP_TRACKS"])
@@ -69,11 +76,12 @@ class NextTrack(Resource):
 
         args = parser.parse_args()
 
-        # TODO 3.2
         fallback = Random(tracks_redis.connection)
-        treatment = Experiments.USER_BASED.assign(user)
+        treatment = Experiments.PERSONALIZED.assign(user)
         if treatment == Treatment.T1:
-            recommender = Indexed(recommendations_ub.connection, catalog, fallback)
+            recommender = Indexed(recommendations_als.connection, catalog, fallback)
+        elif treatment == Treatment.T2:
+            recommender = Indexed(recommendations_lfm.connection, catalog, fallback)
         else:
             recommender = StickyArtist(
                 tracks_redis.connection, artists_redis.connection, catalog
