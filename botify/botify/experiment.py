@@ -67,5 +67,7 @@ class Experiments:
     USER_BASED = Experiment("USER_BASED", Split.HALF_HALF)
     PERSONALIZED = Experiment("PERSONALIZED", Split.THREE_WAY)
 
+    # Step 1. Setup A/B partitioner
+
     def __init__(self):
         self.experiments = [Experiments.PERSONALIZED]

@@ -78,6 +78,9 @@ class NextTrack(Resource):
 
         fallback = Random(tracks_redis.connection)
         treatment = Experiments.PERSONALIZED.assign(user)
+
+        # Step 2. Setup experiment
+
         if treatment == Treatment.T1:
             recommender = Indexed(recommendations_als.connection, catalog, fallback)
         elif treatment == Treatment.T2:
