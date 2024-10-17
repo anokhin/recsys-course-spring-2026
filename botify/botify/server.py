@@ -30,6 +30,7 @@ artists_redis = Redis(app, config_prefix="REDIS_ARTIST")
 recommendations_ub = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_UB")
 recommendations_als = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_ALS")
 recommendations_lfm = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_LFM")
+recommendations_dssm = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_DSSM")
 
 data_logger = DataLogger(app)
 
@@ -44,6 +45,9 @@ catalog.upload_recommendations(
 )
 catalog.upload_recommendations(
     recommendations_lfm.connection, "RECOMMENDATIONS_LFM_FILE_PATH"
+)
+catalog.upload_recommendations(
+    recommendations_dssm.connection, "RECOMMENDATIONS_DSSM_FILE_PATH"
 )
 
 top_tracks = TopPop.load_from_json(app.config["TOP_TRACKS"])
@@ -76,15 +80,13 @@ class NextTrack(Resource):
 
         args = parser.parse_args()
 
-        fallback = Random(tracks_redis.connection)
-        treatment = Experiments.PERSONALIZED.assign(user)
-
-        # Step 2. Setup experiment
+        fallback = StickyArtist(
+            tracks_redis.connection, artists_redis.connection, catalog
+        )
+        treatment = Experiments.DSSM.assign(user)
 
         if treatment == Treatment.T1:
-            recommender = Indexed(recommendations_als.connection, catalog, fallback)
-        elif treatment == Treatment.T2:
-            recommender = Indexed(recommendations_lfm.connection, catalog, fallback)
+            recommender = Indexed(recommendations_dssm.connection, catalog, fallback)
         else:
             recommender = StickyArtist(
                 tracks_redis.connection, artists_redis.connection, catalog
