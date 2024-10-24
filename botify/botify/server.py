@@ -11,6 +11,7 @@ from gevent.pywsgi import WSGIServer
 
 from botify.data import DataLogger, Datum
 from botify.experiment import Experiments, Treatment
+from botify.recommenders.contextual import Contextual
 from botify.recommenders.indexed import Indexed
 from botify.recommenders.random import Random
 from botify.recommenders.sticky_artist import StickyArtist
@@ -31,6 +32,7 @@ recommendations_ub = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_UB")
 recommendations_als = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_ALS")
 recommendations_lfm = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_LFM")
 recommendations_dssm = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_DSSM")
+recommendations_contextual = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_CONTEXTUAL")
 
 data_logger = DataLogger(app)
 
@@ -48,6 +50,10 @@ catalog.upload_recommendations(
 )
 catalog.upload_recommendations(
     recommendations_dssm.connection, "RECOMMENDATIONS_DSSM_FILE_PATH"
+)
+catalog.upload_recommendations(
+    recommendations_contextual, "RECOMMENDATIONS_CONTEXTUAL_FILE_PATH",
+    key_object='track', key_recommendations='recommendations'
 )
 
 top_tracks = TopPop.load_from_json(app.config["TOP_TRACKS"])
@@ -80,17 +86,18 @@ class NextTrack(Resource):
 
         args = parser.parse_args()
 
-        fallback = StickyArtist(
-            tracks_redis.connection, artists_redis.connection, catalog
-        )
-        treatment = Experiments.DSSM.assign(user)
+        fallback = Random(tracks_redis.connection)
+        treatment = Experiments.CONTEXTUAL_DSSM_LFM.assign(user)
+
 
         if treatment == Treatment.T1:
+            recommender = Contextual(recommendations_contextual.connection, catalog, fallback)
+        elif treatment == Treatment.T2:
             recommender = Indexed(recommendations_dssm.connection, catalog, fallback)
+        elif treatment == Treatment.T3: # baseline
+            recommender = Indexed(recommendations_lfm.connection, catalog, fallback)
         else:
-            recommender = StickyArtist(
-                tracks_redis.connection, artists_redis.connection, catalog
-            )
+            recommender = StickyArtist(tracks_redis.connection, artists_redis.connection, catalog)
 
         recommendation = recommender.recommend_next(user, args.track, args.time)
 
