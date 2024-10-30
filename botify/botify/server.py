@@ -33,6 +33,7 @@ recommendations_als = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_ALS")
 recommendations_lfm = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_LFM")
 recommendations_dssm = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_DSSM")
 recommendations_contextual = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_CONTEXTUAL")
+# TODO Seminar 7 step 1: create a redis db for GCF recs
 
 data_logger = DataLogger(app)
 
@@ -55,6 +56,7 @@ catalog.upload_recommendations(
     recommendations_contextual, "RECOMMENDATIONS_CONTEXTUAL_FILE_PATH",
     key_object='track', key_recommendations='recommendations'
 )
+# TODO Seminar 7 step 2: upload GCF recs
 
 top_tracks = TopPop.load_from_json(app.config["TOP_TRACKS"])
 
@@ -86,6 +88,7 @@ class NextTrack(Resource):
 
         args = parser.parse_args()
 
+        # TODO Seminar 7 step 4: wire AB
         fallback = Random(tracks_redis.connection)
         treatment = Experiments.CONTEXTUAL_DSSM_LFM.assign(user)
 

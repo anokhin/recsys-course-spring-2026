@@ -61,6 +61,7 @@ class Experiments:
     A static container for all the existing experiments.
     """
 
+    # TODO Seminar 7 step 3: configure AB
     AA = Experiment("AA", Split.HALF_HALF)
     STICKY_ARTIST = Experiment("STICKY_ARTIST", Split.HALF_HALF)
     TOP_POP = Experiment("TOP_POP", Split.FOUR_WAY)

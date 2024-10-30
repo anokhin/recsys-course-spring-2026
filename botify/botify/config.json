@@ -20,6 +20,9 @@
   "REDIS_RECOMMENDATIONS_CONTEXTUAL_HOST": "redis",
   "REDIS_RECOMMENDATIONS_CONTEXTUAL_PORT": 6379,
   "REDIS_RECOMMENDATIONS_CONTEXTUAL_DB": 6,
+  "REDIS_RECOMMENDATIONS_GCF_HOST": "redis",
+  "REDIS_RECOMMENDATIONS_GCF_PORT": 6379,
+  "REDIS_RECOMMENDATIONS_GCF_DB": 6,
   "TRACKS_CATALOG": "./data/tracks.json",
   "TOP_TRACKS": "./data/top_tracks.json",
   "RECOMMENDATIONS_UB_FILE_PATH": "./data/recommendations_ub.json",
@@ -27,6 +30,7 @@
   "RECOMMENDATIONS_LFM_FILE_PATH": "./data/recommendations_lfm.json",
   "RECOMMENDATIONS_DSSM_FILE_PATH": "./data/recommendations_dssm.json",
   "RECOMMENDATIONS_CONTEXTUAL_FILE_PATH": "./data/recommendations_contextual.json",
+  "RECOMMENDATIONS_GCF_FILE_PATH": "./data/recommendations_gcf.json",
   "DATA_LOG_FILE": "./log/data.json",
   "DATA_LOG_FILE_MAX_BYTES": 104857600,
   "DATA_LOG_FILE_BACKUP_COPIES": 10
