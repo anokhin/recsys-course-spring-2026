@@ -16,7 +16,7 @@ class UserCatalogConfig:
     default_consume_bias: float = 5.0
     default_consume_sharpness: float = 1.0
     default_session_budget: int = 5
-    default_artist_discount_gamma: float = 0.5
+    default_artist_discount_gamma: float = 0.8
 
 
 @dataclass()

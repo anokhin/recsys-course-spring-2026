@@ -34,7 +34,8 @@ recommendations_lfm = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_LFM")
 recommendations_dssm = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_DSSM")
 recommendations_contextual = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_CONTEXTUAL")
 recommendations_gcf = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_GCF")
-# TODO Seminar 7 step 1: create a redis db for GCF recs
+# TODO Seminar 8 step 1: create a redis db for DIV recs
+recommendations_div = Redis(app, config_prefix="REDIS_TRACKS_WITH_DIVERSE_RECS")
 
 data_logger = DataLogger(app)
 
@@ -60,7 +61,12 @@ catalog.upload_recommendations(
 catalog.upload_recommendations(
     recommendations_gcf.connection, "RECOMMENDATIONS_GCF_FILE_PATH",
 )
-# TODO Seminar 7 step 2: upload GCF recs
+# TODO Seminar 8 step 2: upload DIV recs
+catalog.upload_recommendations(
+    recommendations_div, "TRACKS_WITH_DIVERSE_RECS_CATALOG_FILE_PATH",
+    key_object='track', key_recommendations='recommendations'
+)
+
 
 top_tracks = TopPop.load_from_json(app.config["TOP_TRACKS"])
 
@@ -92,15 +98,26 @@ class NextTrack(Resource):
 
         args = parser.parse_args()
 
-        # TODO Seminar 7 step 4: wire AB
+        # TODO Seminar 8 step 4: wire AB
         fallback = Random(tracks_redis.connection)
-        treatment = Experiments.GCF.assign(user)
-
+        treatment = Experiments.ALL.assign(user)
 
         if treatment == Treatment.T1:
-            recommender = Indexed(recommendations_gcf.connection, catalog, fallback)
-        else:
+            recommender = StickyArtist(tracks_redis.connection, artists_redis.connection, catalog)
+        elif treatment == Treatment.T2:
+            recommender = TopPop(catalog.top_tracks[:100], fallback)
+        elif treatment == Treatment.T3:
             recommender = Indexed(recommendations_lfm.connection, catalog, fallback)
+        elif treatment == Treatment.T4:
+            recommender = Indexed(recommendations_dssm.connection, catalog, fallback)
+        elif treatment == Treatment.T5:
+            recommender = Contextual(recommendations_contextual.connection, catalog, fallback)
+        elif treatment == Treatment.T6:
+            recommender = Indexed(recommendations_gcf.connection, catalog, fallback)
+        elif treatment == Treatment.T7:
+            recommender = Contextual(recommendations_div.connection, catalog, fallback)
+        else:
+            recommender = fallback
 
         recommendation = recommender.recommend_next(user, args.track, args.time)
 
