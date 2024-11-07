@@ -33,6 +33,7 @@ recommendations_als = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_ALS")
 recommendations_lfm = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_LFM")
 recommendations_dssm = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_DSSM")
 recommendations_contextual = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_CONTEXTUAL")
+recommendations_gcf = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_GCF")
 # TODO Seminar 7 step 1: create a redis db for GCF recs
 
 data_logger = DataLogger(app)
@@ -55,6 +56,9 @@ catalog.upload_recommendations(
 catalog.upload_recommendations(
     recommendations_contextual, "RECOMMENDATIONS_CONTEXTUAL_FILE_PATH",
     key_object='track', key_recommendations='recommendations'
+)
+catalog.upload_recommendations(
+    recommendations_gcf.connection, "RECOMMENDATIONS_GCF_FILE_PATH",
 )
 # TODO Seminar 7 step 2: upload GCF recs
 
@@ -90,17 +94,13 @@ class NextTrack(Resource):
 
         # TODO Seminar 7 step 4: wire AB
         fallback = Random(tracks_redis.connection)
-        treatment = Experiments.CONTEXTUAL_DSSM_LFM.assign(user)
+        treatment = Experiments.GCF.assign(user)
 
 
         if treatment == Treatment.T1:
-            recommender = Contextual(recommendations_contextual.connection, catalog, fallback)
-        elif treatment == Treatment.T2:
-            recommender = Indexed(recommendations_dssm.connection, catalog, fallback)
-        elif treatment == Treatment.T3: # baseline
-            recommender = Indexed(recommendations_lfm.connection, catalog, fallback)
+            recommender = Indexed(recommendations_gcf.connection, catalog, fallback)
         else:
-            recommender = StickyArtist(tracks_redis.connection, artists_redis.connection, catalog)
+            recommender = Indexed(recommendations_lfm.connection, catalog, fallback)
 
         recommendation = recommender.recommend_next(user, args.track, args.time)
 
