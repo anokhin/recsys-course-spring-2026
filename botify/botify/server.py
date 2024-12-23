@@ -11,7 +11,11 @@ from gevent.pywsgi import WSGIServer
 
 from botify.data import DataLogger, Datum
 from botify.experiment import Experiments, Treatment
+from botify.recommenders.contextual import Contextual
+from botify.recommenders.indexed import Indexed
 from botify.recommenders.random import Random
+from botify.recommenders.sticky_artist import StickyArtist
+from botify.recommenders.toppop import TopPop
 from botify.track import Catalog
 
 root = logging.getLogger()
@@ -24,11 +28,47 @@ api = Api(app)
 tracks_redis = Redis(app, config_prefix="REDIS_TRACKS")
 artists_redis = Redis(app, config_prefix="REDIS_ARTIST")
 
+recommendations_ub = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_UB")
+recommendations_als = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_ALS")
+recommendations_lfm = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_LFM")
+recommendations_dssm = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_DSSM")
+recommendations_contextual = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_CONTEXTUAL")
+recommendations_gcf = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_GCF")
+# TODO Seminar 8 step 1: create a redis db for DIV recs
+recommendations_div = Redis(app, config_prefix="REDIS_TRACKS_WITH_DIVERSE_RECS")
+
 data_logger = DataLogger(app)
 
 catalog = Catalog(app).load(app.config["TRACKS_CATALOG"])
 catalog.upload_tracks(tracks_redis.connection)
 catalog.upload_artists(artists_redis.connection)
+catalog.upload_recommendations(
+    recommendations_ub.connection, "RECOMMENDATIONS_UB_FILE_PATH"
+)
+catalog.upload_recommendations(
+    recommendations_als.connection, "RECOMMENDATIONS_ALS_FILE_PATH"
+)
+catalog.upload_recommendations(
+    recommendations_lfm.connection, "RECOMMENDATIONS_LFM_FILE_PATH"
+)
+catalog.upload_recommendations(
+    recommendations_dssm.connection, "RECOMMENDATIONS_DSSM_FILE_PATH"
+)
+catalog.upload_recommendations(
+    recommendations_contextual, "RECOMMENDATIONS_CONTEXTUAL_FILE_PATH",
+    key_object='track', key_recommendations='recommendations'
+)
+catalog.upload_recommendations(
+    recommendations_gcf.connection, "RECOMMENDATIONS_GCF_FILE_PATH",
+)
+# TODO Seminar 8 step 2: upload DIV recs
+catalog.upload_recommendations(
+    recommendations_div, "TRACKS_WITH_DIVERSE_RECS_CATALOG_FILE_PATH",
+    key_object='track', key_recommendations='recommendations'
+)
+
+
+top_tracks = TopPop.load_from_json(app.config["TOP_TRACKS"])
 
 parser = reqparse.RequestParser()
 parser.add_argument("track", type=int, location="json", required=True)
@@ -58,12 +98,26 @@ class NextTrack(Resource):
 
         args = parser.parse_args()
 
-        treatment = Experiments.AA.assign(user)
+        # TODO Seminar 8 step 4: wire AB
+        fallback = Random(tracks_redis.connection)
+        treatment = Experiments.ALL.assign(user)
 
         if treatment == Treatment.T1:
-            recommender = Random(tracks_redis.connection)
+            recommender = StickyArtist(tracks_redis.connection, artists_redis.connection, catalog)
+        elif treatment == Treatment.T2:
+            recommender = TopPop(catalog.top_tracks[:100], fallback)
+        elif treatment == Treatment.T3:
+            recommender = Indexed(recommendations_lfm.connection, catalog, fallback)
+        elif treatment == Treatment.T4:
+            recommender = Indexed(recommendations_dssm.connection, catalog, fallback)
+        elif treatment == Treatment.T5:
+            recommender = Contextual(recommendations_contextual.connection, catalog, fallback)
+        elif treatment == Treatment.T6:
+            recommender = Indexed(recommendations_gcf.connection, catalog, fallback)
+        elif treatment == Treatment.T7:
+            recommender = Contextual(recommendations_div.connection, catalog, fallback)
         else:
-            recommender = Random(tracks_redis.connection)
+            recommender = fallback
 
         recommendation = recommender.recommend_next(user, args.track, args.time)
 

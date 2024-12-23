@@ -22,6 +22,7 @@ class Split(Enum):
     FOUR_WAY = 4
     FIVE_WAY = 5
     SEVEN_WAY = 7
+    EIGHT_WAY = 8
     NINE_WAY = 9
 
 
@@ -61,7 +62,16 @@ class Experiments:
     A static container for all the existing experiments.
     """
 
+    # TODO Seminar 8 step 3: configure AB
     AA = Experiment("AA", Split.HALF_HALF)
+    STICKY_ARTIST = Experiment("STICKY_ARTIST", Split.HALF_HALF)
+    TOP_POP = Experiment("TOP_POP", Split.FOUR_WAY)
+    USER_BASED = Experiment("USER_BASED", Split.HALF_HALF)
+    PERSONALIZED = Experiment("PERSONALIZED", Split.THREE_WAY)
+    DSSM = Experiment("DSSM", Split.HALF_HALF)
+    CONTEXTUAL_DSSM_LFM = Experiment("CONTEXTUAL_DSSM_LFM", Split.FOUR_WAY)
+    GCF = Experiment("GCF", Split.HALF_HALF)
+    ALL = Experiment("ALL", Split.EIGHT_WAY)
 
     def __init__(self):
-        self.experiments = [Experiments.AA]
+        self.experiments = [Experiments.ALL]
