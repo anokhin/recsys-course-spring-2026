@@ -16,11 +16,11 @@
 
 1. Создаем чистый env с python 3.8. На примере conda:
    ```
-   conda create -n recsys-2024 python==3.8
+   conda create -n recsys-2025 python==3.9
    ``` 
 2. Активириуем окружение:
    ``` 
-   conda activate recsys-2024
+   conda activate recsys-2025
    ``` 
 3. Устанавливаем зависимости
    ```
