@@ -13,6 +13,7 @@ from botify.data import DataLogger, Datum
 from botify.experiment import Experiments, Treatment
 from botify.recommenders.random import Random
 from botify.recommenders.sticky_artist import StickyArtist
+from botify.recommenders.toppop import TopPop
 from botify.track import Catalog
 
 root = logging.getLogger()
@@ -30,6 +31,8 @@ data_logger = DataLogger(app)
 catalog = Catalog(app).load(app.config["TRACKS_CATALOG"])
 catalog.upload_tracks(tracks_redis.connection)
 catalog.upload_artists(artists_redis.connection)
+
+top_tracks = TopPop.load_from_json("./data/top_tracks.json")
 
 parser = reqparse.RequestParser()
 parser.add_argument("track", type=int, location="json", required=True)
@@ -61,10 +64,14 @@ class NextTrack(Resource):
 
         # TODO Seminar 8 step 4: wire AB
         fallback = Random(tracks_redis.connection)
-        treatment = Experiments.STICKY_ARTIST.assign(user)
+        treatment = Experiments.TOP_POP.assign(user)
 
         if treatment == Treatment.T1:
-            recommender = StickyArtist(tracks_redis.connection, artists_redis.connection, catalog)
+            recommender = TopPop(top_tracks[:10], fallback)
+        elif treatment == Treatment.T2:
+            recommender = TopPop(top_tracks[:100], fallback)
+        elif treatment == Treatment.T3:
+            recommender = TopPop(top_tracks[:1000], fallback)
         else:
             recommender = fallback
 

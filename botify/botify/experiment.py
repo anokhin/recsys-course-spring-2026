@@ -62,9 +62,11 @@ class Experiments:
     A static container for all the existing experiments.
     """
 
-    # TODO Seminar 8 step 3: configure AB
+    # TODO Семинар 1, Шаг 4 -  Запускаем A/B эксперимент.
     AA = Experiment("AA", Split.HALF_HALF)
-    STICKY_ARTIST = Experiment("STICKY_ARTIST", Split.HALF_HALF)
+    # TODO Семинар 1, Шаг 4.1 - Создаем эксперимент STICKY_ARTIST
+    STICKY_ARTIST = Experiment("STICKY_ARTIST", Split.NINE_WAY)
+
     TOP_POP = Experiment("TOP_POP", Split.FOUR_WAY)
     USER_BASED = Experiment("USER_BASED", Split.HALF_HALF)
     PERSONALIZED = Experiment("PERSONALIZED", Split.THREE_WAY)
@@ -74,4 +76,4 @@ class Experiments:
     ALL = Experiment("ALL", Split.EIGHT_WAY)
 
     def __init__(self):
-        self.experiments = [Experiments.STICKY_ARTIST]
+        self.experiments = [Experiments.TOP_POP]
