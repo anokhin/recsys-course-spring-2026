@@ -76,4 +76,4 @@ class Experiments:
     ALL = Experiment("ALL", Split.EIGHT_WAY)
 
     def __init__(self):
-        self.experiments = [Experiments.TOP_POP]
+        self.experiments = [Experiments.USER_BASED]
