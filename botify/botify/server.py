@@ -12,7 +12,6 @@ from gevent.pywsgi import WSGIServer
 from botify.data import DataLogger, Datum
 from botify.experiment import Experiments, Treatment
 from botify.recommenders.random import Random
-from botify.recommenders.sticky_artist import StickyArtist
 from botify.recommenders.toppop import TopPop
 from botify.recommenders.indexed import Indexed
 from botify.track import Catalog
@@ -25,7 +24,6 @@ app.config.from_file("config.json", load=json.load)
 api = Api(app)
 
 tracks_redis = Redis(app, config_prefix="REDIS_TRACKS")
-# TODO Семинар 1, Шаг 1.2 - Создаем коннект к новой базе
 artists_redis = Redis(app, config_prefix="REDIS_ARTIST")
 
 recommendations_ub = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_UB")
@@ -34,7 +32,6 @@ data_logger = DataLogger(app)
 
 catalog = Catalog(app).load(app.config["TRACKS_CATALOG"])
 catalog.upload_tracks(tracks_redis.connection)
-# TODO Семинар 1, Шаг 2 - Загружаем в новую базу данные о треках исполнителей
 catalog.upload_artists(artists_redis.connection)
 catalog.upload_recommendations(
     recommendations_ub.connection, "RECOMMENDATIONS_UB_FILE_PATH"
@@ -70,7 +67,6 @@ class NextTrack(Resource):
 
         args = parser.parse_args()
 
-        # TODO Семинар 1, Шаг 4.2 - Используем эксперимент для выбора рекомендера между Random и StickyArtist.
         fallback = Random(tracks_redis.connection)
         treatment = Experiments.USER_BASED.assign(user)
 
