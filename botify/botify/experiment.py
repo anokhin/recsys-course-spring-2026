@@ -74,4 +74,4 @@ class Experiments:
     ALL = Experiment("ALL", Split.EIGHT_WAY)
 
     def __init__(self):
-        self.experiments = [Experiments.PERSONALIZED]
+        self.experiments = [Experiments.GCF]
