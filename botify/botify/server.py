@@ -1,6 +1,5 @@
 import json
 import logging
-import random
 import time
 from dataclasses import asdict
 from datetime import datetime
@@ -10,13 +9,13 @@ from flask_redis import Redis
 from flask_restful import Resource, Api, abort, reqparse
 from gevent.pywsgi import WSGIServer
 
-from botify.recommenders.contextual import Contextual
 from botify.data import DataLogger, Datum
 from botify.experiment import Experiments, Treatment
+from botify.recommenders.contextual import Contextual
+from botify.recommenders.indexed import Indexed
 from botify.recommenders.random import Random
 from botify.recommenders.sticky_artist import StickyArtist
 from botify.recommenders.toppop import TopPop
-from botify.recommenders.indexed import Indexed
 from botify.track import Catalog
 
 root = logging.getLogger()
@@ -39,9 +38,11 @@ data_logger = DataLogger(app)
 catalog = Catalog(app).load(app.config["TRACKS_CATALOG"])
 catalog.upload_tracks(tracks_redis.connection)
 catalog.upload_artists(artists_redis.connection)
+
 catalog.upload_recommendations(
     recommendations_ub.connection, "RECOMMENDATIONS_UB_FILE_PATH"
 )
+
 catalog.upload_recommendations(
     recommendations_ub.connection, "RECOMMENDATIONS_LFM_FILE_PATH"
 )
@@ -86,12 +87,22 @@ class NextTrack(Resource):
         args = parser.parse_args()
 
         fallback = Random(tracks_redis.connection)
-        treatment = Experiments.GCF.assign(user)
+        treatment = Experiments.ALL.assign(user)
 
         if treatment == Treatment.T1:
+            recommender = StickyArtist(tracks_redis.connection, artists_redis.connection, catalog)
+        elif treatment == Treatment.T2:
+            recommender = TopPop(top_tracks[:100], fallback)
+        elif treatment == Treatment.T3:
+            recommender = Indexed(recommendations_ub.connection, catalog, fallback)
+        elif treatment == Treatment.T4:
+            recommender = Indexed(recommendations_lfm.connection, catalog, fallback)
+        elif treatment == Treatment.T5:
+            recommender = Contextual(recommendations_contextual.connection, catalog, fallback)
+        elif treatment == Treatment.T6:
             recommender = Indexed(recommendations_gcf.connection, catalog, fallback)
         else:
-            recommender = Indexed(recommendations_lfm.connection, catalog, fallback)
+            recommender = fallback
 
         recommendation = recommender.recommend_next(user, args.track, args.time)
 
