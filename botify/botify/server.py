@@ -18,6 +18,8 @@ from botify.recommenders.toppop import TopPop
 from botify.recommenders.indexed import Indexed
 from botify.track import Catalog
 
+from recommenders.sequential import Sequential
+
 root = logging.getLogger()
 root.setLevel("INFO")
 
@@ -28,10 +30,9 @@ api = Api(app)
 tracks_redis = Redis(app, config_prefix="REDIS_TRACKS")
 artists_redis = Redis(app, config_prefix="REDIS_ARTIST")
 
-recommendations_ub = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_UB")
 recommendations_lfm = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_LFM")
-recommendations_gcf = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_GCF")
-recommendations_dlrm = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_DLRM")
+recommendations_dpp = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_DIVERSITY_DPP")
+recommendations_auth = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_DIVERSITY_AUTHOR")
 
 data_logger = DataLogger(app)
 
@@ -39,18 +40,13 @@ catalog = Catalog(app).load(app.config["TRACKS_CATALOG"])
 catalog.upload_tracks(tracks_redis.connection)
 catalog.upload_artists(artists_redis.connection)
 catalog.upload_recommendations(
-    recommendations_ub.connection, "RECOMMENDATIONS_UB_FILE_PATH"
+    recommendations_lfm.connection, "RECOMMENDATIONS_LFM_FILE_PATH"
 )
 catalog.upload_recommendations(
-    recommendations_ub.connection, "RECOMMENDATIONS_LFM_FILE_PATH"
+    recommendations_dpp.connection, "RECOMMENDATIONS_DIVERSITY_DPP_FILE_PATH"
 )
-
 catalog.upload_recommendations(
-    recommendations_gcf.connection, "RECOMMENDATIONS_GCF_FILE_PATH"
-)
-
-catalog.upload_recommendations(
-    recommendations_dlrm.connection, "RECOMMENDATIONS_DLRM_FILE_PATH"
+    recommendations_auth.connection, "RECOMMENDATIONS_DIVERSITY_AUTHOR_FILE_PATH"
 )
 
 top_tracks = TopPop.load_from_json("./data/top_tracks.json")
@@ -84,12 +80,14 @@ class NextTrack(Resource):
         args = parser.parse_args()
 
         fallback = Random(tracks_redis.connection)
-        treatment = Experiments.DLRM.assign(user)
+        treatment = Experiments.DIVERSITY.assign(user)
 
         if treatment == Treatment.T1:
-            recommender = Indexed(recommendations_dlrm.connection, catalog, fallback)
+            recommender = Sequential(recommendations_dpp.connection, catalog, fallback)
+        elif treatment == Treatment.T2:
+            recommender = Sequential(recommendations_auth.connection, catalog, fallback)
         else:
-            recommender = StickyArtist(tracks_redis, artists_redis, catalog)
+            recommender = Sequential(recommendations_lfm.connection, catalog, fallback)
 
         recommendation = recommender.recommend_next(user, args.track, args.time)
 
