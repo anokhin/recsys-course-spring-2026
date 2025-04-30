@@ -30,9 +30,8 @@ api = Api(app)
 tracks_redis = Redis(app, config_prefix="REDIS_TRACKS")
 artists_redis = Redis(app, config_prefix="REDIS_ARTIST")
 
-recommendations_lfm = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_LFM")
-recommendations_dpp = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_DIVERSITY_DPP")
-recommendations_auth = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_DIVERSITY_AUTHOR")
+recommendations_svd = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_DEBIAS_SVD")
+recommendations_svd_ips = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_DEBIAS_SVD_IPS")
 
 data_logger = DataLogger(app)
 
@@ -40,13 +39,10 @@ catalog = Catalog(app).load(app.config["TRACKS_CATALOG"])
 catalog.upload_tracks(tracks_redis.connection)
 catalog.upload_artists(artists_redis.connection)
 catalog.upload_recommendations(
-    recommendations_lfm.connection, "RECOMMENDATIONS_LFM_FILE_PATH"
+    recommendations_svd.connection, "RECOMMENDATIONS_DEBIAS_SVD_FILE_PATH"
 )
 catalog.upload_recommendations(
-    recommendations_dpp.connection, "RECOMMENDATIONS_DIVERSITY_DPP_FILE_PATH"
-)
-catalog.upload_recommendations(
-    recommendations_auth.connection, "RECOMMENDATIONS_DIVERSITY_AUTHOR_FILE_PATH"
+    recommendations_svd_ips.connection, "RECOMMENDATIONS_DEBIAS_SVD_IPS_FILE_PATH"
 )
 
 top_tracks = TopPop.load_from_json("./data/top_tracks.json")
@@ -80,14 +76,12 @@ class NextTrack(Resource):
         args = parser.parse_args()
 
         fallback = Random(tracks_redis.connection)
-        treatment = Experiments.DIVERSITY.assign(user)
+        treatment = Experiments.DEBIAS.assign(user)
 
         if treatment == Treatment.T1:
-            recommender = Sequential(recommendations_dpp.connection, catalog, fallback)
-        elif treatment == Treatment.T2:
-            recommender = Sequential(recommendations_auth.connection, catalog, fallback)
+            recommender = Sequential(recommendations_svd_ips.connection, catalog, fallback)
         else:
-            recommender = Sequential(recommendations_lfm.connection, catalog, fallback)
+            recommender = Sequential(recommendations_svd.connection, catalog, fallback)
 
         recommendation = recommender.recommend_next(user, args.track, args.time)
 
