@@ -19,6 +19,7 @@ class StickyArtist(Recommender):
             raise ValueError(f"Track not found: {prev_track}")
 
         artist_data = self.artists_redis.get(track.artist)
+
         if artist_data is not None:
             artist_tracks = self.catalog.from_bytes(artist_data)
         else:
