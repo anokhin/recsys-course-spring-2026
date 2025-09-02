@@ -8,6 +8,17 @@
 
 ![Архитектура сервиса botify](architecture.png)
 
+## Демо симулятора
+
+1. Запускаем streamlit из папки botify
+   ```
+   streamlit run botify/demo.py
+   ```
+2. Запускаем симулятор
+   ```
+   python -m sim.run --episodes 1 --config config/env.yml single --recommender remote --seed 31337
+   ```
+
 ## Инструкция
 
 1. [Устанавливаем docker](https://www.docker.com/products/docker-desktop)

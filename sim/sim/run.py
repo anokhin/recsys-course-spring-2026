@@ -1,7 +1,9 @@
 import argparse
 import cmd
 import itertools
+import os.path
 import time
+import urllib.request
 from concurrent.futures.process import ProcessPoolExecutor
 from dataclasses import dataclass, asdict
 
@@ -116,6 +118,35 @@ def run_multi(args):
     return list(itertools.chain(*stats))
 
 
+def download_data():
+    print("Downloading simulator data...")
+    print("1/3")
+    embeddings_path = "data/embeddings.npy"
+    if not os.path.exists(embeddings_path):
+        urllib.request.urlretrieve(
+            "https://download850.mediafire.com/82b8x5t778ggTu5HpNwCytXbTqKKiMLdfbr4O8gH8AOEc21OlayPpN_gc-hdN599KJ4ssGLsHKrjEvmBYKP8iudpUVngF2vzpbsDCbWtFtJZeAsfslnKRurGo1p_tzeqg571cUmo5cdUFPF19FqhapzOpznpxxXYBJVr1JsKs8KOJw/b42v7luqhwke12i/embeddings.npy",
+            embeddings_path
+        )
+
+    print("2/3")
+    tracks_path = "data/tracks.json"
+    if not os.path.exists(tracks_path):
+        urllib.request.urlretrieve(
+            "https://download850.mediafire.com/kcjkxmqfdtuglJUswVNMI76Q-GFygr476CDaabM-Fx9jlHTWfZ2X9U7W-WktDNjVvTnGqt0qjHTCqF-2rOvxhOnk4uEEWYrEgH6ifvlih8sDvOYY8Hg2twurGosHM5vCxs6FslyNbp6EJmNandfMy-m5c76eUqtvsGiv3YmgLkO3Mw/busnvngp0jg9rer/tracks.json",
+            tracks_path
+        )
+
+    print("3/3")
+    users_path = "data/users.json"
+    if not os.path.exists(users_path):
+        urllib.request.urlretrieve(
+            "https://download1323.mediafire.com/uxslpnd4o9pgoZTwVMFuHbbwKASqM_8vqN-mPdWZa8pSZVW1sZzeUZVvETpDaeRTS5C86MAG49-j2SM3CJ4jw1ZvffE8VM8nOv-5VnDQ859HXvIzntwQLqs56XaCbTFXmVban91JQOIpHcgRjtDVPl065Ui5PV03Pg4bBfX575tQdQ/x5vo04bjzwagy30/users.json",
+                users_path
+        )
+
+    print("done")
+
+
 def main():
     parser = argparse.ArgumentParser()
 
@@ -155,6 +186,8 @@ def main():
     multi_parser.set_defaults(func=run_multi)
 
     args = parser.parse_args()
+
+    download_data()
 
     start = time.time()
     stats = args.func(args)
