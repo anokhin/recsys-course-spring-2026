@@ -1,16 +1,33 @@
 from dataclasses import dataclass
+from typing import List
 
 import marshmallow_dataclass
 
 
-@dataclass()
+@dataclass
+class ArtistsConfig:
+    model: str
+    years: List[int]
+    top_by_years: int
+    top_by_genre: int
+    top_by_country: int
+    artists_path: str
+
+
+@dataclass
 class TrackCatalogConfig:
-    track_meta_path: str
-    track_embeddings_path: str
+    tracks_data_model: str
+    tracks_per_artist: int
+    tracks_raw_path: str
+    tracks_path: str
+    tracks_embeddings_model: str
+    tracks_embeddings_path: str
 
 
 @dataclass
 class UserCatalogConfig:
+    model: str
+    users: int
     user_catalog_path: str
     default_interest_neighbours: int = 10
     default_consume_bias: float = 5.0
@@ -27,6 +44,7 @@ class RemoteRecommenderConfig:
 
 @dataclass
 class RecEnvConfig:
+    artists_config: ArtistsConfig
     track_catalog_config: TrackCatalogConfig
     user_catalog_config: UserCatalogConfig
     remote_recommender_config: RemoteRecommenderConfig

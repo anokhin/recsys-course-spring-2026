@@ -8,10 +8,10 @@ from sim.envs.config import TrackCatalogConfig
 class TrackCatalog:
     def __init__(self, config: TrackCatalogConfig):
         self.config = config
-        self.track_embeddings = np.load(config.track_embeddings_path)
+        self.track_embeddings = np.load(config.tracks_embeddings_path)
         self.index = self.build_track_index()
 
-        track_meta = pd.read_json(config.track_meta_path, lines=True).sort_values(
+        track_meta = pd.read_json(config.tracks_path, lines=True).sort_values(
             "track"
         )
         # Check that meta is consistent with embeddings

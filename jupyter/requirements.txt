@@ -1,0 +1,8 @@
+jupyterlab
+numpy
+pandas
+requests
+lightfm
+ollama
+tensorboard
+tensorboardX
