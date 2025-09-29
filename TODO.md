@@ -1,5 +1,6 @@
 Лекция 2
-- Values of user exploration 
+- Values of user exploration
+- https://dl.acm.org/doi/10.1145/1864708.1864761
 
 Лекция 4
 - Больше интерактива
