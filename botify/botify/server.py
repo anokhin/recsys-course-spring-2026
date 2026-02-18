@@ -12,9 +12,6 @@ from gevent.pywsgi import WSGIServer
 from botify.data import DataLogger, Datum
 from botify.experiment import Experiments, Treatment
 from botify.recommenders.random import Random
-from botify.recommenders.sticky_artist import StickyArtist
-from botify.recommenders.toppop import TopPop
-from botify.recommenders.indexed import Indexed
 from botify.track import Catalog
 
 root = logging.getLogger()
@@ -32,13 +29,6 @@ data_logger = DataLogger(app)
 catalog = Catalog(app).load(app.config["TRACKS_CATALOG"])
 catalog.upload_tracks(tracks_redis.connection)
 catalog.upload_artists(artists_redis.connection)
-
-recommendations_lfm = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_LFM")
-catalog.upload_recommendations(
-    recommendations_lfm.connection, "RECOMMENDATIONS_LFM_FILE_PATH"
-)
-
-top_tracks = TopPop.load_from_json("./data/top_tracks.json")
 
 parser = reqparse.RequestParser()
 parser.add_argument("track", type=int, location="json", required=True)
@@ -68,17 +58,13 @@ class NextTrack(Resource):
 
         args = parser.parse_args()
 
-        fallback = Random(tracks_redis.connection)
-        treatment = Experiments.PERSONALIZED.assign(user)
+        recommender = Random(tracks_redis.connection)
+        treatment = Experiments.AA.assign(user)
 
         if treatment == Treatment.T1:
-            recommender = Indexed(recommendations_lfm.connection, catalog, fallback)
-        elif treatment == Treatment.T2:
-            recommender = StickyArtist(tracks_redis.connection, artists_redis.connection, catalog)
-        elif treatment == Treatment.T3:
-            recommender = TopPop(top_tracks[:100], fallback)
+            recommender = recommender
         else:
-            recommender = fallback
+            recommender = recommender
 
         recommendation = recommender.recommend_next(user, args.track, args.time)
 

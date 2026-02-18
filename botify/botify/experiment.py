@@ -63,18 +63,6 @@ class Experiments:
     """
 
     AA = Experiment("AA", Split.HALF_HALF)
-    STICKY_ARTIST = Experiment("STICKY_ARTIST", Split.NINE_WAY)
-
-    TOP_POP = Experiment("TOP_POP", Split.FOUR_WAY)
-    USER_BASED = Experiment("USER_BASED", Split.HALF_HALF)
-    PERSONALIZED = Experiment("PERSONALIZED", Split.FOUR_WAY)
-    DSSM = Experiment("DSSM", Split.HALF_HALF)
-    CONTEXTUAL_DSSM_LFM = Experiment("CONTEXTUAL_DSSM_LFM", Split.FOUR_WAY)
-    GCF = Experiment("GCF", Split.HALF_HALF)
-    DLRM = Experiment("DLRM", Split.HALF_HALF)
-    ALL = Experiment("ALL", Split.EIGHT_WAY)
-    DIVERSITY = Experiment("DIVERSITY", Split.THREE_WAY)
-    DEBIAS = Experiment("DEBIAS", Split.HALF_HALF)
 
     def __init__(self):
-        self.experiments = [Experiments.PERSONALIZED]
+        self.experiments = [Experiments.AA]
