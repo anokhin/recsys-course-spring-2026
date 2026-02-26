@@ -346,8 +346,6 @@ Recommender Systems Handbook \cite{RSHB}, Mining of Massive datasets \cite{MMDS}
 
 \end{frame}
 
-%--------------------------------------------------
-
 \begin{frame}{Обзор типичных компонентов RS / \\ Mendeley (2016) \cite{MNDL}}
 % Components
 \begin{columns}
@@ -374,8 +372,6 @@ Recommender Systems Handbook \cite{RSHB}, Mining of Massive datasets \cite{MMDS}
 
 \end{frame}
 
-%--------------------------------------------------
-
 \begin{frame}{Рекомендации айтемов из больших каталогов / Youtube (2016) \cite{YTBE}}
 % Enormous action space, context
 \begin{columns}
@@ -395,7 +391,6 @@ Recommender Systems Handbook \cite{RSHB}, Mining of Massive datasets \cite{MMDS}
 
 \end{frame}
 
-%--------------------------------------------------
 
 \begin{frame}{Уровни вычислений и двухэтапный рекомендер \cite{YAN}}
 
@@ -404,8 +399,6 @@ Recommender Systems Handbook \cite{RSHB}, Mining of Massive datasets \cite{MMDS}
 \end{center}
 
 \end{frame}
-
-%--------------------------------------------------
 
 \begin{frame}{Как выбрать техническую метрику}
 
@@ -435,8 +428,6 @@ Recommender Systems Handbook \cite{RSHB}, Mining of Massive datasets \cite{MMDS}
 \end{itemize}
 
 \end{frame}
-
-%--------------------------------------------------
 
 \begin{frame}
 
@@ -468,8 +459,6 @@ Recommender Systems Handbook \cite{RSHB}, Mining of Massive datasets \cite{MMDS}
 \end{footnotesize}
 
 \end{frame}
-
-%--------------------------------------------------
 
 \begin{frame}{Precision@k, Recall@k}
 
@@ -505,8 +494,6 @@ Recommender Systems Handbook \cite{RSHB}, Mining of Massive datasets \cite{MMDS}
 
 \end{frame}
 
-%--------------------------------------------------
-
 \begin{frame}{Normalized Discounted Cumulative Gain}
 
 \begin{columns}
@@ -532,9 +519,7 @@ Recommender Systems Handbook \cite{RSHB}, Mining of Massive datasets \cite{MMDS}
 
 \end{frame}
 
-%--------------------------------------------------
-
-\begin{frame}
+\begin{frame}{Алгоритмы RS}
 
 \begin{columns}
 
@@ -558,8 +543,6 @@ Recommender Systems Handbook \cite{RSHB}, Mining of Massive datasets \cite{MMDS}
 
 \end{frame}
 
-%--------------------------------------------------
-
 \begin{frame}{Content-based RS}
 
 \begin{columns}
@@ -579,8 +562,6 @@ Recommender Systems Handbook \cite{RSHB}, Mining of Massive datasets \cite{MMDS}
 \end{columns}
 
 \end{frame}
-
-%--------------------------------------------------
 
 \begin{frame}{Collaborative filtering\footnote{Оскар за худшее название алгоритма}-based RS}
 
@@ -604,21 +585,17 @@ Recommender Systems Handbook \cite{RSHB}, Mining of Massive datasets \cite{MMDS}
 
 %--------------------------------------------------
 
-\begin{frame}
+\begin{frame}{Матричные разложения}
 \begin{center}
 \includegraphics[scale=0.5]{images/SVD.png}
 \end{center}
 \end{frame}
-
-%--------------------------------------------------
 
 \begin{frame}
 \begin{center}
 \includegraphics[scale=0.3]{images/latent.png}
 \end{center}
 \end{frame}
-
-%--------------------------------------------------
 
 \begin{frame}{Простые автоэнкодеры}
 
@@ -635,8 +612,6 @@ SLIM \cite{SLIM} / EASE \cite{EASE}
 
 \end{frame}
 
-%--------------------------------------------------
-
 \begin{frame}{Implicit ALS (iALS) \cite{iALS}}
 \begin{tcolorbox}[colback=info!5,colframe=info!80,title=]
 Давайте обучим модель на implicit feedback, но вместо семплирования implicit негативных примеров - используем вообще все негативные примеры.
@@ -652,26 +627,6 @@ R(P,Q) = \sum_{u \in U} (U(i) + \alpha|U|)||p_u||_F + \sum_{i \in I} (I(u) + \al
 При расчете аналитических решений для векторов $p_u$, $q_i$ - значительная часть вычислений является общей. Eë нужно посчитать только один раз и дальше перееиспользовать в рамках одного шага ALS.
 
 \end{frame}
-
-%\begin{frame}{}
-%
-%\begin{columns}
-%
-%\begin{column}{0.47\textwidth} 
-%\begin{center}
-%\includegraphics[scale=0.18]{images/relationships.png}
-%\end{center}
-%\end{column}
-%
-%\begin{column}{0.47\textwidth}
-%\begin{center}
-%\includegraphics[scale=0.15]{images/conspiracy.jpeg}
-%\end{center}
-%\end{column}
-%
-%\end{columns}
-%
-%\end{frame}
 
 \section{Что дальше}
 
@@ -720,7 +675,7 @@ R(P,Q) = \sum_{u \in U} (U(i) + \alpha|U|)||p_u||_F + \sum_{i \in I} (I(u) + \al
 5 & Графовые нейронные сети в рекомендациях & \checked  &  & \\
 6 & Разнообразие в рекомендациях & \checked  & \checked & \checked \\
 7 & Нерешённые проблемы рекомендательных систем & \checked  & \checked & \\
-8 & Uplift моделирование & \checked  & \checked & \checked \\
+8 & Uplift моделирование & \checked  & \checked & \\
 9 & Reinforcement learning для рекомендаций & \checked  & \checked & 
 \end{tabular}
 \end{footnotesize}
@@ -731,10 +686,17 @@ R(P,Q) = \sum_{u \in U} (U(i) + \alpha|U|)||p_u||_F + \sum_{i \in I} (I(u) + \al
 
 \begin{itemize}
 \item Идеальное выполнение домашек $25 + 35 = 60$
-\item Идеальное выполнение квизов и домашки = $100$
+\item Идеальное выполнение квизов и домашки $96$
+\item Качественное заполнение фидбэка $100$
 \item Дополнительные баллы можно получить на зачете
 \end{itemize}
 
+\end{frame}
+
+\begin{frame}
+\begin{center}
+\includegraphics[scale=0.3]{images/thankyou.jpg}
+\end{center}
 \end{frame}
 
 
