@@ -1,6 +1,7 @@
 import json
 import logging
 import time
+import atexit
 from dataclasses import asdict
 from datetime import datetime
 
@@ -25,10 +26,12 @@ tracks_redis = Redis(app, config_prefix="REDIS_TRACKS")
 artists_redis = Redis(app, config_prefix="REDIS_ARTIST")
 
 data_logger = DataLogger(app)
+atexit.register(data_logger.close)
 
 catalog = Catalog(app).load(app.config["TRACKS_CATALOG"])
 catalog.upload_tracks(tracks_redis.connection)
 catalog.upload_artists(artists_redis.connection)
+random_recommender = Random(tracks_redis.connection)
 
 parser = reqparse.RequestParser()
 parser.add_argument("track", type=int, location="json", required=True)
@@ -58,15 +61,15 @@ class NextTrack(Resource):
 
         args = parser.parse_args()
 
-        recommender = Random(tracks_redis.connection)
         treatment = Experiments.AA.assign(user)
 
         if treatment == Treatment.T1:
-            recommender = recommender
+            recommender = random_recommender
         else:
-            recommender = recommender
+            recommender = random_recommender
 
         recommendation = recommender.recommend_next(user, args.track, args.time)
+        experiments = {Experiments.AA.name: treatment.name}
 
         data_logger.log(
             "next",
@@ -78,6 +81,7 @@ class NextTrack(Resource):
                 time.time() - start,
                 recommendation,
             ),
+            experiments=experiments,
         )
         return {"user": user, "track": recommendation}
 
@@ -86,6 +90,7 @@ class LastTrack(Resource):
     def post(self, user: int):
         start = time.time()
         args = parser.parse_args()
+        treatment = Experiments.AA.assign(user)
         data_logger.log(
             "last",
             Datum(
@@ -95,6 +100,7 @@ class LastTrack(Resource):
                 args.time,
                 time.time() - start,
             ),
+            experiments={Experiments.AA.name: treatment.name},
         )
         return {"user": user}
 
