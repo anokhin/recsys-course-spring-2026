@@ -11,7 +11,7 @@ faiss-cpu
 Flask
 Flask-And-Redis
 Flask-RESTful
-gym
+gymnasium
 idna
 importlib-metadata
 itsdangerous

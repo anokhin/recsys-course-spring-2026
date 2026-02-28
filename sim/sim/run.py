@@ -32,7 +32,7 @@ class EpisodeStats:
 
 
 def run_episode(day: int, episode: int, env: RecEnv, recommender: Recommender):
-    observation = env.reset()
+    observation, _ = env.reset()
     done = False
     reward = 1.0
 
@@ -40,7 +40,8 @@ def run_episode(day: int, episode: int, env: RecEnv, recommender: Recommender):
 
     while not done:
         action = recommender.recommend(observation, reward, done)
-        observation, reward, done, info = env.step(action)
+        observation, reward, terminated, truncated, info = env.step(action)
+        done = terminated or truncated
         stats.reward += reward
         stats.steps += 1
 
