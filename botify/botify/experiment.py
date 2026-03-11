@@ -63,6 +63,7 @@ class Experiments:
     """
 
     AA = Experiment("AA", Split.HALF_HALF)
+    I2I = Experiment("I2I", Split.THREE_WAY)
 
     def __init__(self):
-        self.experiments = [Experiments.AA]
+        self.experiments = [Experiments.I2I]
