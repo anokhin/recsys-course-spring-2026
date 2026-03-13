@@ -223,7 +223,7 @@ def draw_requests(selected, tracks):
 
         send_col, cancel_col = st.columns([1, 1])
         with send_col:
-            if st.button("✅ Send Response", use_container_width=True):
+            if st.button("✅ Send Response", width="stretch"):
                 try:
                     parsed = {"user": selected.user, "track": recommendation}
                 except Exception as e:
@@ -240,7 +240,7 @@ def draw_requests(selected, tracks):
                         st.toast("Response sent ✅")
 
         with cancel_col:
-            if st.button("🛑 Cancel / Reject (send 202)", use_container_width=True):
+            if st.button("🛑 Cancel / Reject (send 202)", width="stretch"):
                 target = store.get_pending(selected.id)
                 if target is None:
                     st.warning("This request is no longer pending.")
@@ -269,9 +269,9 @@ def draw_logs(entries, tracks):
             }
         )
 
-    st.dataframe(rows, use_container_width=True, hide_index=True)
+    st.dataframe(rows, hide_index=True)
 
-    if st.button("🧹 Clear log", type="secondary", use_container_width=False):
+    if st.button("🧹 Clear log", type="secondary", width="content"):
         store.clear_logs()
         st.toast("Cleared request log")
 
