@@ -31,6 +31,3 @@ class StickyArtistMixed(Recommender):
 
         candidates = [t for t in artist_tracks if t != prev_track] or artist_tracks
         return int(random.choice(candidates))
-
-
-
