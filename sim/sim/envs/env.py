@@ -1,6 +1,6 @@
-import gym
+import gymnasium as gym
 import numpy as np
-from gym.spaces import Discrete, Dict
+from gymnasium.spaces import Discrete, Dict
 
 from .config import RecEnvConfig
 from .track import TrackCatalog
@@ -9,7 +9,7 @@ from .user import UserCatalog
 
 class RecEnv(gym.Env):
 
-    metadata = {"render.modes": ["human"]}
+    metadata = {"render_modes": ["human"]}
 
     def __init__(self, config: RecEnvConfig):
         super(RecEnv, self).__init__()
@@ -37,12 +37,18 @@ class RecEnv(gym.Env):
         playback_time = self.user.consume(
             recommendation, self.session, self.track_catalog
         )
-        return self.session.observe(), playback_time, self.session.finished, None
+        terminated = self.session.finished
+        truncated = False
+        info = {}
+        return self.session.observe(), playback_time, terminated, truncated, info
 
-    def reset(self):
+    def reset(self, *, seed=None, options=None):
+        super().reset(seed=seed)
+        if seed is not None:
+            np.random.seed(seed)
         self.user = self.user_catalog.sample_user()
         self.session = self.user.new_session(self.track_catalog)
-        return self.session.observe()
+        return self.session.observe(), {}
 
     def render(self, mode="human", close=False):
         print(f"Current session: {self.session}")

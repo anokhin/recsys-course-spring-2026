@@ -63,6 +63,8 @@ class Experiments:
     """
 
     STICKY_ARTIST = Experiment("STICKY_ARTIST", Split.HALF_HALF)
+    AA = Experiment("AA", Split.HALF_HALF)
+    I2I = Experiment("I2I", Split.THREE_WAY)
 
     def __init__(self):
-        self.experiments = [Experiments.STICKY_ARTIST]
+        self.experiments = [Experiments.I2I]

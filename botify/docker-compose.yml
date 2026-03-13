@@ -11,7 +11,7 @@ services:
 
   recommender:
     build: .
-    entrypoint: python botify/server.py
+    entrypoint: gunicorn -k gevent -w 2 -b 0.0.0.0:5001 botify.server:app
     ports:
       - "5001"
     depends_on:

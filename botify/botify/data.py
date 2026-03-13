@@ -1,6 +1,7 @@
 import logging
 from dataclasses import dataclass, asdict
-from logging.handlers import RotatingFileHandler
+from logging.handlers import QueueHandler, QueueListener, RotatingFileHandler
+from queue import SimpleQueue
 
 from pythonjsonlogger import jsonlogger
 
@@ -29,6 +30,8 @@ class DataLogger:
 
     def __init__(self, app):
         self.logger = logging.getLogger("data")
+        self.logger.setLevel(logging.INFO)
+        self.logger.propagate = False
 
         handler = RotatingFileHandler(
             app.config["DATA_LOG_FILE"],
@@ -38,13 +41,24 @@ class DataLogger:
         formatter = jsonlogger.JsonFormatter()
         handler.setFormatter(formatter)
 
-        self.logger.addHandler(handler)
+        self.log_queue = SimpleQueue()
+        self.listener = QueueListener(self.log_queue, handler)
+        self.listener.start()
+        self.logger.handlers.clear()
+        self.logger.addHandler(QueueHandler(self.log_queue))
+
         self.experiment_context = Experiments()
 
-    def log(self, location, datum: Datum):
+    def log(self, location, datum: Datum, experiments=None):
         values = asdict(datum)
-        values["experiments"] = {
-            experiment.name: experiment.assign(datum.user).name
-            for experiment in self.experiment_context.experiments
-        }
+        if experiments is None:
+            values["experiments"] = {
+                experiment.name: experiment.assign(datum.user).name
+                for experiment in self.experiment_context.experiments
+            }
+        else:
+            values["experiments"] = experiments
         self.logger.info(location, extra=values)
+
+    def close(self):
+        self.listener.stop()

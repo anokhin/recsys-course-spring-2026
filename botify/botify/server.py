@@ -1,6 +1,7 @@
 import json
 import logging
 import time
+import atexit
 from dataclasses import asdict
 from datetime import datetime
 
@@ -11,6 +12,7 @@ from gevent.pywsgi import WSGIServer
 
 from botify.data import DataLogger, Datum
 from botify.experiment import Experiments, Treatment
+from botify.recommenders.i2i import I2IRecommender
 from botify.recommenders.random import Random
 from botify.recommenders.sticky_artist import StickyArtist
 from botify.track import Catalog
@@ -24,18 +26,54 @@ api = Api(app)
 
 tracks_redis = Redis(app, config_prefix="REDIS_TRACKS")
 artists_redis = Redis(app, config_prefix="REDIS_ARTIST")
+listen_history_redis = Redis(app, config_prefix="REDIS_LISTEN_HISTORY")
+recommendations_lfm_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_LFM")
+recommendations_contextual_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_SASREC")
 
 data_logger = DataLogger(app)
+atexit.register(data_logger.close)
 
 catalog = Catalog(app).load(app.config["TRACKS_CATALOG"])
 catalog.upload_tracks(tracks_redis.connection)
 catalog.upload_artists(artists_redis.connection)
 random_recommender = Random(tracks_redis.connection)
 sticky_artist_recommender = StickyArtist(tracks_redis, artists_redis, catalog)
+catalog.upload_recommendations(
+    recommendations_lfm_redis.connection,
+    "RECOMMENDATIONS_LFM_FILE_PATH",
+    key_object="item_id",
+    key_recommendations="recommendations",
+)
+catalog.upload_recommendations(
+    recommendations_contextual_redis.connection,
+    "RECOMMENDATIONS_SASREC_FILE_PATH",
+    key_object="item_id",
+    key_recommendations="recommendations",
+)
+random_recommender = Random(tracks_redis.connection)
+lightfm_i2i_recommender = I2IRecommender(
+    listen_history_redis.connection,
+    recommendations_lfm_redis.connection,
+    random_recommender,
+)
+sasrec_i2i_recommender = I2IRecommender(
+    listen_history_redis.connection,
+    recommendations_contextual_redis.connection,
+    random_recommender,
+)
 
 parser = reqparse.RequestParser()
 parser.add_argument("track", type=int, location="json", required=True)
 parser.add_argument("time", type=float, location="json", required=True)
+
+LISTEN_HISTORY_LIMIT = 10
+
+
+def persist_user_listen_history(user: int, track: int, track_time: float):
+    user_history_key = f"user:{user}:listens"
+    history_entry = json.dumps({"track": track, "time": track_time})
+    listen_history_redis.connection.lpush(user_history_key, history_entry)
+    listen_history_redis.connection.ltrim(user_history_key, 0, LISTEN_HISTORY_LIMIT - 1)
 
 
 class Hello(Resource):
@@ -60,16 +98,18 @@ class NextTrack(Resource):
         start = time.time()
 
         args = parser.parse_args()
+        persist_user_listen_history(user, args.track, args.time)
 
-        recommender = Random(tracks_redis.connection)
-        experiment = Experiments.STICKY_ARTIST
+        treatment = Experiments.I2I.assign(user)
 
-        treatment = experiment.assign(user)
-
-        if treatment == Treatment.T1:
-            recommender = sticky_artist_recommender
+        if treatment == Treatment.C:
+            recommender = random_recommender
+        elif treatment == Treatment.T1:
+            recommender = lightfm_i2i_recommender
+        elif treatment == Treatment.T2:
+            recommender = sasrec_i2i_recommender
         else:
-            recommender = recommender
+            recommender = random_recommender
 
         recommendation = recommender.recommend_next(user, args.track, args.time)
 
@@ -91,6 +131,7 @@ class LastTrack(Resource):
     def post(self, user: int):
         start = time.time()
         args = parser.parse_args()
+        persist_user_listen_history(user, args.track, args.time)
         data_logger.log(
             "last",
             Datum(
@@ -99,7 +140,7 @@ class LastTrack(Resource):
                 args.track,
                 args.time,
                 time.time() - start,
-            ),
+            )
         )
         return {"user": user}
 

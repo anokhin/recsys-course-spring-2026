@@ -73,7 +73,7 @@ class User:
 
         # Users get upset when we recommend them the same artist multiple times
         artist_discount = np.power(
-            self.artist_discount_gamma, session.artist_counts()[artist]
+            self.artist_discount_gamma, session.artist_counter[artist]
         )
         time = np.around(raw_time * artist_discount, decimals=2)
 
