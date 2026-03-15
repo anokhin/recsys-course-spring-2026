@@ -36,26 +36,29 @@ atexit.register(data_logger.close)
 catalog = Catalog(app).load(app.config["TRACKS_CATALOG"])
 catalog.upload_tracks(tracks_redis.connection)
 catalog.upload_artists(artists_redis.connection)
+
 random_recommender = Random(tracks_redis.connection)
 sticky_artist_recommender = StickyArtist(tracks_redis, artists_redis, catalog)
+
 catalog.upload_recommendations(
     recommendations_lfm_redis.connection,
     "RECOMMENDATIONS_LFM_FILE_PATH",
     key_object="item_id",
     key_recommendations="recommendations",
 )
+lightfm_i2i_recommender = I2IRecommender(
+    listen_history_redis.connection,
+    recommendations_lfm_redis.connection,
+    random_recommender,
+)
+
 catalog.upload_recommendations(
     recommendations_contextual_redis.connection,
     "RECOMMENDATIONS_SASREC_FILE_PATH",
     key_object="item_id",
     key_recommendations="recommendations",
 )
-random_recommender = Random(tracks_redis.connection)
-lightfm_i2i_recommender = I2IRecommender(
-    listen_history_redis.connection,
-    recommendations_lfm_redis.connection,
-    random_recommender,
-)
+
 sasrec_i2i_recommender = I2IRecommender(
     listen_history_redis.connection,
     recommendations_contextual_redis.connection,
@@ -103,7 +106,7 @@ class NextTrack(Resource):
         treatment = Experiments.I2I.assign(user)
 
         if treatment == Treatment.C:
-            recommender = random_recommender
+            recommender = sticky_artist_recommender
         elif treatment == Treatment.T1:
             recommender = lightfm_i2i_recommender
         elif treatment == Treatment.T2:
