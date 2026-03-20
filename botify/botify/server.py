@@ -106,11 +106,11 @@ class NextTrack(Resource):
         treatment = Experiments.I2I.assign(user)
 
         if treatment == Treatment.C:
-            recommender = sticky_artist_recommender
+            recommender = random_recommender
         elif treatment == Treatment.T1:
             recommender = lightfm_i2i_recommender
         elif treatment == Treatment.T2:
-            recommender = sasrec_i2i_recommender
+            recommender = sasrec_i2i_recommender  # This is the winner now
         else:
             recommender = random_recommender
 
