@@ -14,11 +14,17 @@ jobs:
       contents: read
 
     steps:
+      - uses: actions/cache@v4
+        with:
+          path: .git/lfs
+          key: lfs-${{ runner.os }}-${{ hashFiles('**/.gitattributes') }}
+
       # ── 1. Клонируем репо курса (там лежит checker/ и sim/) ──────────────
       - name: Checkout course repo
         uses: actions/checkout@v4
         with:
           path: course
+          lfs: true
 
       # ── 2. Клонируем форк студента ───────────────────────────────────────
       - name: Checkout student repo
@@ -27,6 +33,7 @@ jobs:
           repository: ${{ github.event.pull_request.head.repo.full_name }}
           ref: ${{ github.event.pull_request.head.sha }}
           path: student
+          lfs: true
 
       # ── 3. Python для чекера и симулятора ────────────────────────────────
       - name: Setup Python
