@@ -19,16 +19,23 @@ jobs:
         uses: actions/checkout@v4
         with:
           path: course
-          lfs: true
+          lfs: false
 
       - name: Cache course data
+        id: cache-course-data
         uses: actions/cache@v4
         with:
           path:
             - course/sim/data/embeddings.npy
             - course/sim/data/tracks.json
             - course/sim/data/users.json
-          key: lfs-course-${{ runner.os }}-${{ hashFiles('**/.gitattributes') }}
+          key: lfs-course-${{ runner.os }}-${{ hashFiles('course/sim/data/embeddings.npy', 'course/sim/data/tracks.json', 'course/sim/data/users.json') }}
+
+      - name: Fetch course LFS data
+        if: steps.cache-course-data.outputs.cache-hit != 'true'
+        run: |
+          cd course
+          git lfs pull --include="sim/data/embeddings.npy,sim/data/tracks.json,sim/data/users.json"
 
       # ── 2. Клонируем форк студента ───────────────────────────────────────
       - name: Checkout student repo
@@ -37,16 +44,23 @@ jobs:
           repository: ${{ github.event.pull_request.head.repo.full_name }}
           ref: ${{ github.event.pull_request.head.sha }}
           path: student
-          lfs: true
+          lfs: false
 
       - name: Cache student data
+        id: cache-student-data
         uses: actions/cache@v4
         with:
           path:
             - student/sim/data/embeddings.npy
             - student/sim/data/tracks.json
             - student/sim/data/users.json
-          key: lfs-student-${{ runner.os }}-${{ hashFiles('**/.gitattributes') }}
+          key: lfs-student-${{ runner.os }}-${{ hashFiles('student/sim/data/embeddings.npy', 'student/sim/data/tracks.json', 'student/sim/data/users.json') }}
+
+      - name: Fetch student LFS data
+        if: steps.cache-student-data.outputs.cache-hit != 'true'
+        run: |
+          cd student
+          git lfs pull --include="sim/data/embeddings.npy,sim/data/tracks.json,sim/data/users.json"
 
       # ── 3. Python для чекера и симулятора ────────────────────────────────
       - name: Setup Python
