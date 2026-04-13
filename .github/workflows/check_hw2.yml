@@ -25,10 +25,10 @@ jobs:
         id: cache-course-data
         uses: actions/cache@v4
         with:
-          path:
-            - course/sim/data/embeddings.npy
-            - course/sim/data/tracks.json
-            - course/sim/data/users.json
+          path: |
+            course/sim/data/embeddings.npy
+            course/sim/data/tracks.json
+            course/sim/data/users.json
           key: lfs-course-${{ runner.os }}-${{ hashFiles('course/sim/data/embeddings.npy', 'course/sim/data/tracks.json', 'course/sim/data/users.json') }}
 
       - name: Fetch course LFS data
@@ -50,10 +50,10 @@ jobs:
         id: cache-student-data
         uses: actions/cache@v4
         with:
-          path:
-            - student/sim/data/embeddings.npy
-            - student/sim/data/tracks.json
-            - student/sim/data/users.json
+          path: |
+            student/sim/data/embeddings.npy
+            student/sim/data/tracks.json
+            student/sim/data/users.json
           key: lfs-student-${{ runner.os }}-${{ hashFiles('student/sim/data/embeddings.npy', 'student/sim/data/tracks.json', 'student/sim/data/users.json') }}
 
       - name: Fetch student LFS data
