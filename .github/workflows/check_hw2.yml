@@ -22,7 +22,7 @@ jobs:
           lfs: true
 
       - name: Cache course data
-      - uses: actions/cache@v4
+        uses: actions/cache@v4
         with:
           path:
             - course/sim/data/embeddings.npy
@@ -40,7 +40,7 @@ jobs:
           lfs: true
 
       - name: Cache student data
-      - uses: actions/cache@v4
+        uses: actions/cache@v4
         with:
           path:
             - student/sim/data/embeddings.npy
