@@ -1,0 +1,249 @@
+name: Check HW2
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    permissions:
+      pull-requests: write
+      contents: read
+
+    steps:
+      # ── 1. Клонируем репо курса (там лежит checker/ и sim/) ──────────────
+      - name: Checkout course repo
+        uses: actions/checkout@v4
+        with:
+          path: course
+          lfs: false
+
+      - name: Cache course data
+        id: cache-course-data
+        uses: actions/cache@v4
+        with:
+          path: |
+            course/sim/data/embeddings.npy
+            course/sim/data/tracks.json
+            course/sim/data/users.json
+          key: lfs-course-${{ runner.os }}-${{ hashFiles('course/sim/data/embeddings.npy', 'course/sim/data/tracks.json', 'course/sim/data/users.json') }}
+
+      - name: Fetch course LFS data
+        if: steps.cache-course-data.outputs.cache-hit != 'true'
+        run: |
+          cd course
+          git lfs pull --include="sim/data/embeddings.npy,sim/data/tracks.json,sim/data/users.json"
+
+      # ── 2. Клонируем форк студента ───────────────────────────────────────
+      - name: Checkout student repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: student
+          lfs: false
+
+      - name: Cache student data
+        id: cache-student-data
+        uses: actions/cache@v4
+        with:
+          path: |
+            student/sim/data/embeddings.npy
+            student/sim/data/tracks.json
+            student/sim/data/users.json
+          key: lfs-student-${{ runner.os }}-${{ hashFiles('student/sim/data/embeddings.npy', 'student/sim/data/tracks.json', 'student/sim/data/users.json') }}
+
+      - name: Fetch student LFS data
+        if: steps.cache-student-data.outputs.cache-hit != 'true'
+        run: |
+          cd student
+          git lfs pull --include="sim/data/embeddings.npy,sim/data/tracks.json,sim/data/users.json"
+
+      # ── 3. Python для чекера и симулятора ────────────────────────────────
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install checker deps
+        run: pip install pandas requests scipy numpy --quiet
+
+      # ── 4. Структурная проверка ───────────────────────────────────────────
+      - name: Check structure
+        id: structure
+        run: |
+          python course/checker/check_structure.py student
+        continue-on-error: true
+
+      # ── 5. Первый запуск (make setup + make run) ──────────────────────────
+      - name: Run 1 — make setup
+        if: steps.structure.outcome == 'success'
+        run: |
+          cd student
+          make setup
+
+      - name: Run 1 — make run
+        id: run1
+        if: steps.structure.outcome == 'success'
+        run: |
+          cd student
+          make run \
+            SEED=31312 \
+            EPISODES=30000 \
+            DATA_DIR="${{ github.workspace }}/results/run1"
+        continue-on-error: true
+
+      # ── 6. Второй запуск (воспроизводимость) ─────────────────────────────
+      - name: Run 2 — make clean
+        if: steps.structure.outcome == 'success'
+        run: |
+          cd student
+          make clean || true
+
+      - name: Run 2 — make setup
+        if: steps.structure.outcome == 'success'
+        run: |
+          cd student
+          make setup
+
+      - name: Run 2 — make run
+        id: run2
+        if: steps.structure.outcome == 'success'
+        run: |
+          cd student
+          make run \
+            SEED=31312 \
+            EPISODES=30000 \
+            DATA_DIR="${{ github.workspace }}/results/run2"
+        continue-on-error: true
+
+      # ── 7. Проверка воспроизводимости ─────────────────────────────────────
+      - name: Check reproducibility
+        id: repro
+        if: steps.run1.outcome == 'success' && steps.run2.outcome == 'success'
+        run: |
+          python course/checker/check_reproducibility.py \
+            --ab1 "${{ github.workspace }}/results/run1/ab_result.json" \
+            --ab2 "${{ github.workspace }}/results/run2/ab_result.json" \
+            --output "${{ github.workspace }}/results/repro_result.json"
+        continue-on-error: true
+
+      # ── 8. Балл ───────────────────────────────────────────────────────────
+      - name: Calculate score
+        id: score
+        if: steps.run1.outcome == 'success'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python course/checker/score.py \
+            --pr-url   "${{ github.event.pull_request.html_url }}" \
+            --deadline "2026-04-27T23:59:00+03:00"\
+            --ab-result "${{ github.workspace }}/results/run1/ab_result.json" \
+            --token    "$GITHUB_TOKEN" \
+            || true
+          # Копируем score_result.json в results/
+          cp score_result.json "${{ github.workspace }}/results/" 2>/dev/null || true
+
+      # ── 9. Комментарий к PR ───────────────────────────────────────────────
+      - name: Post results to PR
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs   = require('fs');
+            const path = require('path');
+            const ws   = process.env.GITHUB_WORKSPACE;
+
+            let score = null;
+            let repro = null;
+            let structureOk = '${{ steps.structure.outcome }}' === 'success';
+            let run1Ok      = '${{ steps.run1.outcome }}'      === 'success';
+            let run2Ok      = '${{ steps.run2.outcome }}'      === 'success';
+
+            try {
+              const sf = path.join(ws, 'results', 'score_result.json');
+              const rf = path.join(ws, 'results', 'repro_result.json');
+              if (fs.existsSync(sf)) score = JSON.parse(fs.readFileSync(sf));
+              if (fs.existsSync(rf)) repro = JSON.parse(fs.readFileSync(rf));
+            } catch(e) { console.log(e.message); }
+
+            let body = '## 🤖 Результаты автопроверки ДЗ2\n\n';
+
+            // Структура
+            body += `### [1] Структура ${structureOk ? '✅' : '❌'}\n`;
+            if (!structureOk) {
+              body += '> Makefile невалиден или analyze_ab.py не найден.\n';
+              body += '> Дальнейшая проверка остановлена.\n\n';
+            }
+
+            // Запуски
+            if (structureOk) {
+              body += `### [2] Первый запуск ${run1Ok ? '✅' : '❌'}\n`;
+              if (!run1Ok) body += '> make run завершился с ошибкой\n\n';
+
+              body += `### [3] Второй запуск (воспроизводимость) ${run2Ok ? '✅' : '❌'}\n`;
+              if (repro) {
+                body += '```\n';
+                body += `run1: effect=${repro.run1_effect}%\n`;
+                body += `run2: effect=${repro.run2_effect}%\n`;
+                body += `delta=${repro.delta}%  (порог=${repro.threshold}%)\n`;
+                body += `${repro.verdict}\n`;
+                body += '```\n\n';
+              }
+            }
+
+            // A/B и балл
+            if (score) {
+              const beatIcon = score.beat_control ? '✅' : '❌';
+              const sigIcon  = score.significant  ? '✅' : '❌';
+              const liftStr  = score.effect_pct != null
+                ? (score.effect_pct > 0 ? '+' : '') + score.effect_pct + '%'
+                : 'N/A';
+
+              body += `### [4] A/B результат\n`;
+              body += `| | |\n|---|---|\n`;
+              body += `| Победил контроль | ${beatIcon} |\n`;
+              body += `| Значимо (p<0.05) | ${sigIcon} |\n`;
+              body += `| Lift (mean_time_per_session) | **${liftStr}** |\n\n`;
+
+              body += `### Балл\n`;
+              body += `## **${score.score} / ${score.max_score}**\n`;
+              body += `\`${score.formula}\`\n`;
+              if (score.d >= 0) {
+                body += `\n> ⚠️ Просрочка: ${score.d} полных суток\n`;
+              }
+            } else if (structureOk && run1Ok) {
+              body += '> ❌ Не удалось прочитать ab_result.json\n';
+              body += '> Проверь что analyze_ab.py создаёт файл с полем `all_effects`\n';
+            }
+
+            body += '\n---\n*Проверка запущена автоматически. ';
+            body += '⚠️ Балл предварительный (k=0). Финальный балл с учётом плагиата выставляет проверяющий.*\n';
+
+            // Удаляем старый комментарий бота
+            const comments = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo:  context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            for (const c of comments.data) {
+              if (c.user.type === 'Bot' && c.body.includes('Результаты автопроверки ДЗ2')) {
+                await github.rest.issues.deleteComment({
+                  owner: context.repo.owner,
+                  repo:  context.repo.repo,
+                  comment_id: c.id,
+                });
+              }
+            }
+
+            // Пишем новый комментарий
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo:  context.repo.repo,
+              issue_number: context.issue.number,
+              body: body,
+            });
