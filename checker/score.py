@@ -10,7 +10,7 @@ try:
 except ImportError:
     requests = None
 
-MAX_SCORE = 28.0
+MAX_SCORE = 35.0
 METRIC = "mean_time_per_session"
 
 
@@ -74,7 +74,7 @@ def main():
     d = deadline_days(submit_time, deadline)
     penalty = 0.95 ** (1 + d)
     score = round(MAX_SCORE * penalty, 2) if beat else 0.0
-    formula = f"28 × 0.95^(1+{d}) = {score:.2f}"
+    formula = f"{MAX_SCORE} × 0.95^(1+{d}) = {score:.2f}"
 
     print(f"""
 ╔══════════════════════════════════════════╗
