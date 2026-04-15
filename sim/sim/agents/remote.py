@@ -2,7 +2,7 @@ import json
 from io import StringIO, BytesIO
 from typing import Dict
 
-from .recommender import Recommender
+from sim.agents.base import Recommender
 from ..envs import RemoteRecommenderConfig
 
 from urllib.parse import urlunsplit, urlencode
