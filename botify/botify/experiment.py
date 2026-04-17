@@ -66,6 +66,7 @@ class Experiments:
     AA = Experiment("AA", Split.HALF_HALF)
     I2I = Experiment("I2I", Split.THREE_WAY)
     HSTU = Experiment("HSTU", Split.HALF_HALF)
+    SESSION_SEMANTIC = Experiment("SESSION_SEMANTIC", Split.HALF_HALF)
 
     def __init__(self):
-        self.experiments = [Experiments.HSTU]
+        self.experiments = [Experiments.SESSION_SEMANTIC]
