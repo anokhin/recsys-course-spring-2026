@@ -1,10 +1,10 @@
-SEED       ?= 31312
-EPISODES   ?= 30000
-DATA_DIR   ?= ./data
+SEED ?= 31312
+EPISODES ?= 30000
+DATA_DIR ?= ./data
 
-VENV   = .venv
+VENV = .venv
 PYTHON = $(VENV)/bin/python
-PIP    = $(VENV)/bin/pip
+PIP = $(VENV)/bin/pip
 
 .PHONY: setup run clean
 
@@ -13,6 +13,12 @@ setup:
 	$(PIP) install --upgrade pip --timeout 120 -q
 	$(PIP) install -r sim/requirements.txt --timeout 120 -q
 	$(PIP) install -r botify/requirements.txt --timeout 120 -q
+	$(PYTHON) script/prepare_hw2_artifacts.py \
+		--tracks botify/data/tracks.json \
+		--sasrec botify/data/sasrec_i2i.jsonl \
+		--lightfm botify/data/lightfm_i2i.jsonl \
+		--hstu botify/data/hstu_recommendations.json \
+		--output botify/data/hw2_hybrid_artifacts.pkl
 	cd botify && docker compose down -v --remove-orphans 2>/dev/null || true
 	cd botify && docker compose up -d --build --force-recreate --scale recommender=2
 	sleep 20
@@ -20,7 +26,7 @@ setup:
 run:
 	cd sim && echo "n" | ../$(PYTHON) -m sim.run \
 		--episodes $(EPISODES) \
-		--config   config/env.yml \
+		--config config/env.yml \
 		single --recommender remote --seed $(SEED)
 	mkdir -p $(DATA_DIR)
 	$(PYTHON) script/dataclient.py --recommender 2 log2local $(DATA_DIR)
@@ -29,4 +35,5 @@ run:
 clean:
 	cd botify && docker compose down -v --remove-orphans 2>/dev/null || true
 	rm -rf $(VENV)
+	rm -f botify/data/hw2_hybrid_artifacts.pkl
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true

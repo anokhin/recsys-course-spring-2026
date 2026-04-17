@@ -14,8 +14,8 @@ from botify.data import DataLogger, Datum
 from botify.experiment import Experiments, Treatment
 from botify.recommenders.i2i import I2IRecommender
 from botify.recommenders.random import Random
-from botify.recommenders.indexed import Indexed
 from botify.recommenders.sticky_artist import StickyArtist
+from botify.recommenders.hybrid_session import HybridSessionRecommender
 from botify.track import Catalog
 
 root = logging.getLogger()
@@ -30,8 +30,6 @@ artists_redis = Redis(app, config_prefix="REDIS_ARTIST")
 listen_history_redis = Redis(app, config_prefix="REDIS_LISTEN_HISTORY")
 recommendations_lfm_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_LFM")
 recommendations_contextual_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_SASREC")
-
-recommendations_hstu_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_HSTU")
 
 data_logger = DataLogger(app)
 atexit.register(data_logger.close)
@@ -62,16 +60,16 @@ catalog.upload_recommendations(
     key_recommendations="recommendations",
 )
 
-catalog.upload_recommendations(
-    recommendations_hstu_redis.connection,
-    "RECOMMENDATIONS_HSTU_FILE_PATH"
-)
-
-
 sasrec_i2i_recommender = I2IRecommender(
     listen_history_redis.connection,
     recommendations_contextual_redis.connection,
     random_recommender,
+)
+
+hybrid_session_recommender = HybridSessionRecommender(
+    listen_history_redis.connection,
+    random_recommender,
+    app.config["HYBRID_ARTIFACT_FILE_PATH"],
 )
 
 parser = reqparse.RequestParser()
@@ -117,7 +115,7 @@ class NextTrack(Resource):
         if treatment == Treatment.C:
             recommender = sasrec_i2i_recommender
         elif treatment == Treatment.T1:
-            recommender = Indexed(recommendations_hstu_redis.connection, catalog, random_recommender)
+            recommender = hybrid_session_recommender
         else:
             recommender = random_recommender
 
@@ -160,7 +158,7 @@ api.add_resource(Track, "/track/<int:track>")
 api.add_resource(NextTrack, "/next/<int:user>")
 api.add_resource(LastTrack, "/last/<int:user>")
 
-app.logger.info(f"Botify service stared")
+app.logger.info("Botify service started")
 
 if __name__ == "__main__":
     http_server = WSGIServer(("", 5001), app)
