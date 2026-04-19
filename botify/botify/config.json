@@ -26,6 +26,7 @@
   "REDIS_RECOMMENDATIONS_HSTU_DB": 5,
   "RECOMMENDATIONS_HSTU_FILE_PATH": "./data/hstu_recommendations.json",
 
+  "REWARD_ML_RERANKER_MODEL_PATH": "./data/reward_ml_reranker.json",
   "TRACKS_CATALOG": "./data/tracks.json",
   "DATA_LOG_FILE": "./log/data.json",
   "DATA_LOG_FILE_MAX_BYTES": 104857600,

@@ -1,5 +1,7 @@
 import json
 import logging
+import os
+import random
 import time
 import atexit
 from dataclasses import asdict
@@ -13,8 +15,8 @@ from gevent.pywsgi import WSGIServer
 from botify.data import DataLogger, Datum
 from botify.experiment import Experiments, Treatment
 from botify.recommenders.i2i import I2IRecommender
+from botify.recommenders.reward_ml_reranker import RewardMlRerankerRecommender
 from botify.recommenders.random import Random
-from botify.recommenders.indexed import Indexed
 from botify.recommenders.sticky_artist import StickyArtist
 from botify.track import Catalog
 
@@ -24,6 +26,10 @@ root.setLevel("INFO")
 app = Flask(__name__)
 app.config.from_file("config.json", load=json.load)
 api = Api(app)
+
+_repro = os.environ.get("APP_REPRO_SEED", "").strip()
+if _repro:
+    random.seed(int(_repro))
 
 tracks_redis = Redis(app, config_prefix="REDIS_TRACKS")
 artists_redis = Redis(app, config_prefix="REDIS_ARTIST")
@@ -49,11 +55,6 @@ catalog.upload_recommendations(
     key_object="item_id",
     key_recommendations="recommendations",
 )
-lightfm_i2i_recommender = I2IRecommender(
-    listen_history_redis.connection,
-    recommendations_lfm_redis.connection,
-    random_recommender,
-)
 
 catalog.upload_recommendations(
     recommendations_contextual_redis.connection,
@@ -72,6 +73,14 @@ sasrec_i2i_recommender = I2IRecommender(
     listen_history_redis.connection,
     recommendations_contextual_redis.connection,
     random_recommender,
+)
+
+reward_ml_reranker_recommender = RewardMlRerankerRecommender(
+    listen_history_redis.connection,
+    recommendations_contextual_redis.connection,
+    sasrec_i2i_recommender,
+    app.config["REWARD_ML_RERANKER_MODEL_PATH"],
+    app.config["TRACKS_CATALOG"],
 )
 
 parser = reqparse.RequestParser()
@@ -112,12 +121,12 @@ class NextTrack(Resource):
         args = parser.parse_args()
         persist_user_listen_history(user, args.track, args.time)
 
-        treatment = Experiments.HSTU.assign(user)
+        treatment = Experiments.HW2_AB.assign(user)
 
         if treatment == Treatment.C:
             recommender = sasrec_i2i_recommender
         elif treatment == Treatment.T1:
-            recommender = Indexed(recommendations_hstu_redis.connection, catalog, random_recommender)
+            recommender = reward_ml_reranker_recommender
         else:
             recommender = random_recommender
 
@@ -142,6 +151,7 @@ class LastTrack(Resource):
         start = time.time()
         args = parser.parse_args()
         persist_user_listen_history(user, args.track, args.time)
+
         data_logger.log(
             "last",
             Datum(

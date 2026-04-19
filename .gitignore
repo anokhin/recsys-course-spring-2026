@@ -5,7 +5,11 @@ __pycache__
 botify/log/*
 botify/data/*.json
 !botify/data/tracks.json
+!botify/data/reward_ml_reranker.json
 .DS_Store
+.venv* 
+ab_data*
+hw2
 
 # LaTeX
 *.aux
