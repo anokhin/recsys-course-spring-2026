@@ -5,6 +5,8 @@ __pycache__
 botify/log/*
 botify/data/*.json
 !botify/data/tracks.json
+!botify/data/hstu_recommendations.json
+!botify/data/recommendations_ease.json
 .DS_Store
 
 # LaTeX
