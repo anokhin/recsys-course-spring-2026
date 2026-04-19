@@ -16,6 +16,7 @@ from botify.recommenders.i2i import I2IRecommender
 from botify.recommenders.random import Random
 from botify.recommenders.indexed import Indexed
 from botify.recommenders.sticky_artist import StickyArtist
+from botify.recommenders.personalized import Personalized
 from botify.track import Catalog
 
 root = logging.getLogger()
@@ -74,11 +75,21 @@ sasrec_i2i_recommender = I2IRecommender(
     random_recommender,
 )
 
+personal_recommender = Personalized(
+    listen_history_redis.connection,
+    recommendations_contextual_redis.connection,
+    tracks_redis.connection,
+    artists_redis.connection,
+    catalog,
+    app.config["PERSONAL_FACTORS_FILE_PATH"],
+    sasrec_i2i_recommender,
+)
+
 parser = reqparse.RequestParser()
 parser.add_argument("track", type=int, location="json", required=True)
 parser.add_argument("time", type=float, location="json", required=True)
 
-LISTEN_HISTORY_LIMIT = 10
+LISTEN_HISTORY_LIMIT = 25
 
 
 def persist_user_listen_history(user: int, track: int, track_time: float):
@@ -112,12 +123,12 @@ class NextTrack(Resource):
         args = parser.parse_args()
         persist_user_listen_history(user, args.track, args.time)
 
-        treatment = Experiments.HSTU.assign(user)
+        treatment = Experiments.PERSONAL.assign(user)
 
         if treatment == Treatment.C:
             recommender = sasrec_i2i_recommender
         elif treatment == Treatment.T1:
-            recommender = Indexed(recommendations_hstu_redis.connection, catalog, random_recommender)
+            recommender = personal_recommender
         else:
             recommender = random_recommender
 

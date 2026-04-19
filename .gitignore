@@ -7,6 +7,11 @@ botify/data/*.json
 !botify/data/tracks.json
 .DS_Store
 
+# Local training artefacts (large, not needed in repo)
+training/sessions.jsonl
+.venv/
+/data/
+
 # LaTeX
 *.aux
 *.glo

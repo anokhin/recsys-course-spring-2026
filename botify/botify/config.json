@@ -26,6 +26,8 @@
   "REDIS_RECOMMENDATIONS_HSTU_DB": 5,
   "RECOMMENDATIONS_HSTU_FILE_PATH": "./data/hstu_recommendations.json",
 
+  "PERSONAL_FACTORS_FILE_PATH": "./data/personal_factors.npz",
+
   "TRACKS_CATALOG": "./data/tracks.json",
   "DATA_LOG_FILE": "./log/data.json",
   "DATA_LOG_FILE_MAX_BYTES": 104857600,
