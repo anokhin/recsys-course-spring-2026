@@ -1,5 +1,7 @@
 from collections import Counter
 from dataclasses import dataclass
+from typing import Optional
+
 import numpy as np
 
 
@@ -8,6 +10,9 @@ class Playback:
     track: int
     time: float
     artist: str = None
+    # Simulator-only diagnostics (useful for reward modeling / debiasing from sim trajectories)
+    affinity: Optional[float] = None  # dot(emb(rec), session interest embedding)
+    duplicate: bool = False  # track was already in session (zero listen time)
 
 
 class Session:

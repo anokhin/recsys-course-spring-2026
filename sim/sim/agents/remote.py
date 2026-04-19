@@ -1,4 +1,5 @@
 import json
+import time
 from io import StringIO, BytesIO
 from typing import Dict
 
@@ -61,16 +62,48 @@ class RemoteRecommender(Recommender):
                 "Aww Snap :( Server returned HTTP status code {}".format(status_code)
             )
 
-        return json.loads(response.getvalue().decode("UTF-8"))
+        raw = response.getvalue().decode("UTF-8")
+        if not raw.strip():
+            raise ValueError(
+                f"Empty response body from {url} (HTTP {status_code}). Is botify/nginx up on {self.host}:{self.port}?"
+            )
+        return json.loads(raw)
 
     def post_urllib(self, url, data):
         headers = {
             "Content-Type": "application/json",
         }
-        response = self.http.request(
-            "POST", url, headers=headers, body=json.dumps(data)
-        )
-        return json.loads(response.data.decode("UTF-8"))
+        payload = json.dumps(data)
+        last_err = None
+        for attempt in range(5):
+            response = self.http.request(
+                "POST", url, headers=headers, body=payload
+            )
+            status = response.status
+            raw = response.data.decode("UTF-8", errors="replace")
+
+            if status == 200 and raw.strip():
+                try:
+                    return json.loads(raw)
+                except json.JSONDecodeError as e:
+                    raise ValueError(
+                        f"Invalid JSON from {url} (HTTP {status}): {raw[:500]!r}"
+                    ) from e
+
+            # Transient proxy/upstream issues (empty body, 502/503) — retry
+            if status in (502, 503, 504) or not raw.strip():
+                last_err = RuntimeError(
+                    f"Bad response from {url}: HTTP {status}, body={raw[:500]!r}. "
+                    f"Check that botify is running (e.g. docker compose in botify/) and reachable at http://{self.host}:{self.port}"
+                )
+                time.sleep(0.2 * (attempt + 1))
+                continue
+
+            raise RuntimeError(
+                f"HTTP {status} from {url}: {raw[:500]!r}"
+            )
+
+        raise last_err
 
     def __enter__(self):
         if use_pycurl:
@@ -88,8 +121,6 @@ class RemoteRecommender(Recommender):
     def __exit__(self, type, value, traceback):
         if use_pycurl:
             self.curl.close()
-        else:
-            self.http.__exit__(type, value, traceback)
 
     def __repr__(self):
         return f"remote({self.host}, {self.port})"

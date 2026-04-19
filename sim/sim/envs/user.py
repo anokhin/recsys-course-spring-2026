@@ -39,7 +39,7 @@ class User:
             [track for track in nearest_tracks[0] if track >= 0]
         )
         first_artist = track_catalog.get_artist(first_track)
-        first_playback = Playback(first_track, 1.0, first_artist)
+        first_playback = Playback(first_track, 1.0, first_artist, affinity=None, duplicate=False)
 
         return Session(
             self.user, session_interest_embedding, first_playback, self.session_budget
@@ -56,7 +56,7 @@ class User:
         if session.budget <= 0:
             session.finish()
 
-        return playback.time
+        return playback
 
     def listen(
         self, recommendation: int, session: Session, track_catalog: TrackCatalog
@@ -65,7 +65,9 @@ class User:
 
         # Users don't want to listen to the same track twice
         if recommendation in session:
-            return Playback(recommendation, 0.0, artist)
+            return Playback(
+                recommendation, 0.0, artist, affinity=None, duplicate=True
+            )
 
         recommendation_embedding = track_catalog.get_embedding(recommendation)
         score = np.dot(recommendation_embedding, session.embedding)
@@ -77,7 +79,13 @@ class User:
         )
         time = np.around(raw_time * artist_discount, decimals=2)
 
-        return Playback(recommendation, time, artist)
+        return Playback(
+            recommendation,
+            time,
+            artist,
+            affinity=float(score),
+            duplicate=False,
+        )
 
     def __repr__(self):
         return f"{self.user}"

@@ -1,11 +1,14 @@
 import argparse
 import cmd
 import itertools
+import json
+import os
 import os.path
 import time
 import urllib.request
 from concurrent.futures.process import ProcessPoolExecutor
 from dataclasses import dataclass, asdict
+
 
 import numpy as np
 import pandas as pd
@@ -50,6 +53,87 @@ def run_episode(day: int, episode: int, env: RecEnv, recommender: Recommender):
     return stats
 
 
+def run_episode_collect(
+    day: int,
+    episode: int,
+    env: RecEnv,
+    recommender: Recommender,
+    recommender_name: str,
+):
+    """One transition per line: context (user, track) -> action -> reward and sim diagnostics."""
+    observation, _ = env.reset()
+    done = False
+    reward = 1.0
+    step = 0
+    rows = []
+    while not done:
+        action = recommender.recommend(observation, reward, done)
+        next_observation, reward, terminated, truncated, info = env.step(action)
+        done = terminated or truncated
+        row = {
+            "day": day,
+            "episode": episode,
+            "step": step,
+            "user": int(observation["user"]),
+            "context_track": int(observation["track"]),
+            "recommended_track": int(action),
+            "listen_time": float(reward),
+            "episode_done": bool(done),
+            "duplicate": bool(info.get("duplicate", False)),
+            "affinity": info.get("affinity"),
+            "recommended_artist": info.get("recommended_artist"),
+            "recommender": recommender_name,
+        }
+        if "negative_tracks" in info:
+            row["negative_tracks"] = info["negative_tracks"]
+        rows.append(row)
+        observation = next_observation
+        step += 1
+
+    recommender.recommend(observation, reward, done)
+    return rows
+
+
+def _make_recommender(env: RecEnv, recommender: str, config: RecEnvConfig):
+    if recommender == DUMMY:
+        return DummyRecommender(env.action_space), DUMMY
+    if recommender == REMOTE:
+        return RemoteRecommender(config.remote_recommender_config), REMOTE
+    if recommender == CONSOLE:
+        return ConsoleRecommender(config.remote_recommender_config), CONSOLE
+    raise ValueError(f"Unknown recommender type: {recommender}")
+
+
+def run_collect(args):
+    config = RecEnvConfigSchema().load(yaml.full_load(open(args.config)))
+    negatives = getattr(args, "negatives", 0)
+    out_path = os.path.abspath(args.output)
+    parent = os.path.dirname(out_path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+
+    total = 0
+    with open(out_path, "w", encoding="utf-8") as out_f, RecEnv(
+        config, collect_negatives=negatives
+    ) as env:
+        env.seed(args.seed)
+        recommender, recommender_name = _make_recommender(
+            env, args.recommender, config
+        )
+        day = 1
+        with recommender, tqdm.tqdm(total=args.episodes) as progress:
+            for episode_id in range(args.episodes):
+                for row in run_episode_collect(
+                    day, episode_id, env, recommender, recommender_name
+                ):
+                    out_f.write(json.dumps(row, ensure_ascii=False) + "\n")
+                    total += 1
+                progress.update(1)
+
+    print(f"Wrote {total} transitions to {out_path}")
+    return []
+
+
 def run_experiment(
     day: int,
     env: RecEnv,
@@ -58,14 +142,7 @@ def run_experiment(
     config: RecEnvConfig,
     position=None,
 ):
-    if recommender == DUMMY:
-        recommender = DummyRecommender(env.action_space)
-    elif recommender == REMOTE:
-        recommender = RemoteRecommender(config.remote_recommender_config)
-    elif recommender == CONSOLE:
-        recommender = ConsoleRecommender(config.remote_recommender_config)
-    else:
-        raise ValueError(f"Unknown recommender type: {recommender}")
+    recommender, _ = _make_recommender(env, recommender, config)
 
     stats = []
     with recommender, tqdm.tqdm(total=episodes, position=position) as progress:
@@ -186,6 +263,33 @@ def main():
     )
     multi_parser.set_defaults(func=run_multi)
 
+    collect_parser = subparsers.add_parser(
+        "collect",
+        help="Run episodes and export JSONL transitions for offline training",
+    )
+    collect_parser.add_argument(
+        "--output",
+        type=str,
+        required=True,
+        help="Path to output .jsonl (one object per line)",
+    )
+    collect_parser.add_argument(
+        "--recommender",
+        choices=[DUMMY, REMOTE, CONSOLE],
+        default=DUMMY,
+        help="dummy=uniform random (broad state coverage); remote=your botify service",
+    )
+    collect_parser.add_argument(
+        "--seed", help="Random seed for the env", type=int, default=42
+    )
+    collect_parser.add_argument(
+        "--negatives",
+        type=int,
+        default=10,
+        help="Number of random unseen-track negatives per row (0 disables)",
+    )
+    collect_parser.set_defaults(func=run_collect)
+
     args = parser.parse_args()
 
     download_data()
@@ -193,6 +297,9 @@ def main():
     start = time.time()
     stats = args.func(args)
     print(f"Time: {int(time.time() - start)} seconds")
+
+    if stats is None or len(stats) == 0:
+        return
 
     result = (
         pd.DataFrame([asdict(s) for s in stats])

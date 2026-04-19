@@ -11,9 +11,10 @@ class RecEnv(gym.Env):
 
     metadata = {"render_modes": ["human"]}
 
-    def __init__(self, config: RecEnvConfig):
+    def __init__(self, config: RecEnvConfig, collect_negatives: int = 0):
         super(RecEnv, self).__init__()
         self.config = config
+        self.collect_negatives = collect_negatives
 
         self.track_catalog = TrackCatalog(config.track_catalog_config)
         self.user_catalog = UserCatalog(config.user_catalog_config)
@@ -34,13 +35,33 @@ class RecEnv(gym.Env):
 
     def step(self, recommendation: int):
         assert self.action_space.contains(recommendation), str(recommendation)
-        playback_time = self.user.consume(
+        info = {}
+        if self.collect_negatives > 0:
+            session = self.session
+            n = self.track_catalog.size()
+            pool = [
+                t
+                for t in range(n)
+                if t not in session.seen_tracks and t != recommendation
+            ]
+            k = min(self.collect_negatives, len(pool))
+            if k > 0:
+                neg = np.random.choice(pool, size=k, replace=False)
+                info["negative_tracks"] = [int(x) for x in neg.tolist()]
+            else:
+                info["negative_tracks"] = []
+
+        playback = self.user.consume(
             recommendation, self.session, self.track_catalog
         )
         terminated = self.session.finished
         truncated = False
-        info = {}
-        return self.session.observe(), playback_time, terminated, truncated, info
+        info["duplicate"] = playback.duplicate
+        info["affinity"] = (
+            None if playback.affinity is None else float(playback.affinity)
+        )
+        info["recommended_artist"] = playback.artist
+        return self.session.observe(), playback.time, terminated, truncated, info
 
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed)
@@ -55,3 +76,9 @@ class RecEnv(gym.Env):
 
     def seed(self, seed=None):
         np.random.seed(seed)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        return False

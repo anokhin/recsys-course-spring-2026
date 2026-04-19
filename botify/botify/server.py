@@ -32,6 +32,8 @@ recommendations_lfm_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_LFM"
 recommendations_contextual_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_SASREC")
 
 recommendations_hstu_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_HSTU")
+recommendations_gcf_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_GCF")
+recommendations_easy_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_EASY")
 
 data_logger = DataLogger(app)
 atexit.register(data_logger.close)
@@ -64,9 +66,18 @@ catalog.upload_recommendations(
 
 catalog.upload_recommendations(
     recommendations_hstu_redis.connection,
-    "RECOMMENDATIONS_HSTU_FILE_PATH"
+    "RECOMMENDATIONS_HSTU_FILE_PATH",
 )
 
+catalog.upload_recommendations(
+    recommendations_gcf_redis.connection,
+    "RECOMMENDATIONS_GCF_FILE_PATH",
+)
+
+catalog.upload_recommendations(
+    recommendations_easy_redis.connection,
+    "RECOMMENDATIONS_EASY_FILE_PATH",
+)
 
 sasrec_i2i_recommender = I2IRecommender(
     listen_history_redis.connection,
@@ -112,12 +123,12 @@ class NextTrack(Resource):
         args = parser.parse_args()
         persist_user_listen_history(user, args.track, args.time)
 
-        treatment = Experiments.HSTU.assign(user)
+        treatment = Experiments.I2I.assign(user)
 
         if treatment == Treatment.C:
             recommender = sasrec_i2i_recommender
         elif treatment == Treatment.T1:
-            recommender = Indexed(recommendations_hstu_redis.connection, catalog, random_recommender)
+            recommender = Indexed(recommendations_easy_redis.connection, catalog, random_recommender)
         else:
             recommender = random_recommender
 
