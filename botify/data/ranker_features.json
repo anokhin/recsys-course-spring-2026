@@ -1,0 +1,21 @@
+{
+  "features": [
+    "len_hist",
+    "avg_listen_time",
+    "last_listen_time",
+    "num_unique_artists_hist",
+    "cand_artist_count_in_hist",
+    "cand_artist_discount",
+    "cand_artist_fans_log",
+    "cand_sasrec_hits",
+    "cand_sasrec_best_rank",
+    "cand_sasrec_weighted",
+    "cand_lightfm_hits",
+    "cand_lightfm_best_rank",
+    "cand_lightfm_weighted",
+    "cand_genre_jaccard_liked",
+    "cand_mood_match_count",
+    "cand_year_abs_distance"
+  ],
+  "best_iteration": 203
+}
