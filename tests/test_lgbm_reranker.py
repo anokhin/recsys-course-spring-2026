@@ -75,3 +75,21 @@ def test_deterministic(reranker, push_history, set_sasrec_recs):
     a = reranker.recommend_next(1, 10, 0.9)
     b = reranker.recommend_next(1, 10, 0.9)
     assert a == b
+
+
+def test_factory_returns_fallback_when_missing(tmp_path, monkeypatch, fake_redis):
+    from botify.recommenders import reranker_factory
+
+    monkeypatch.setenv("RERANKER_DIR", str(tmp_path))
+
+    class _F:
+        def recommend_next(self, *a):
+            return 7
+
+    out = reranker_factory.build_reranker(
+        listen_history_redis=fake_redis,
+        sasrec_redis=fake_redis,
+        fallback=_F(),
+        tracks_json_path="/dev/null",
+    )
+    assert out.recommend_next(1, 2, 3.0) == 7

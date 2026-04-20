@@ -1,14 +1,14 @@
-FROM python:3.7-slim-buster
+FROM python:3.11-slim
 
 WORKDIR /app
 
-COPY requirements.txt .
+COPY botify/requirements.txt /app/botify/requirements.txt
+RUN pip install --no-cache-dir -r /app/botify/requirements.txt
 
-RUN pip install -r requirements.txt
+COPY botify /app/botify
+COPY script /app/script
 
-COPY botify ./botify
-COPY data ./data
+RUN mkdir -p /app/botify/log
 
-RUN mkdir -p ./log
-
-ENV PYTHONPATH "${PYTHONPATH}:/app"
+WORKDIR /app/botify
+ENV PYTHONPATH="/app:/app/botify"
