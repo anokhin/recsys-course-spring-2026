@@ -66,6 +66,8 @@ class Experiments:
     AA = Experiment("AA", Split.HALF_HALF)
     I2I = Experiment("I2I", Split.THREE_WAY)
     HSTU = Experiment("HSTU", Split.HALF_HALF)
+    DATA_COLLECT = Experiment("DATA_COLLECT", Split.THREE_WAY)
+    RANKER = Experiment("RANKER", Split.HALF_HALF)
 
     def __init__(self):
-        self.experiments = [Experiments.HSTU]
+        self.experiments = [Experiments.RANKER]
