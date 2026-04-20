@@ -54,7 +54,11 @@ session_semantic_recommender = SessionSemanticRecommender(
     listen_history_redis.connection,
     catalog,
     app.config["SESSION_SEMANTIC_EMBEDDINGS_FILE_PATH"],
-    random_recommender,
+    sasrec_i2i_recommender,
+    i2i_redis=recommendations_contextual_redis.connection,
+    artist_penalty=0.12,
+    semantic_gate=0.14,
+    min_margin=0.01,
 )
 
 parser = reqparse.RequestParser()
