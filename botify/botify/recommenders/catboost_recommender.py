@@ -1,8 +1,8 @@
 import json
-import pickle
 import numpy as np
 from pathlib import Path
 from typing import List, Dict, Any, Optional
+from catboost import CatBoostRegressor
 
 from botify.recommenders import Recommender
 from botify.tracks import TracksCatalog
@@ -11,10 +11,7 @@ from botify.users import UsersCatalog
 
 
 class CatBoostRecommender(Recommender):
-    """
-    ML-рекомендер на базе CatBoostRanker.
-    Использует эмбеддинги пользователей и треков, а также контекстные фичи.
-    """
+    """ML-рекомендер на CatBoostRegressor с 9 признаками."""
 
     def __init__(
         self,
@@ -27,124 +24,112 @@ class CatBoostRecommender(Recommender):
         self.artists_catalog = artists_catalog
         self.users_catalog = users_catalog
 
-        # Загружаем модель
+        # Путь к модели
         if model_path is None:
-            model_path = Path(__file__).parent.parent.parent / "models" / "cb_ranker.cbm"
+            model_path = Path(__file__).parent.parent.parent / "models" / "cb_regressor.cbm"
         else:
             model_path = Path(model_path)
 
         if model_path.exists():
-            import catboost
-            self.model = catboost.CatBoostRanker()
+            self.model = CatBoostRegressor()
             self.model.load_model(str(model_path))
-            print(f"CatBoost модель загружена из {model_path}")
+            print(f"[CatBoost] Модель загружена из {model_path}")
         else:
-            print(f"ВНИМАНИЕ: Модель не найдена по пути {model_path}. Использую fallback.")
+            print(f"[CatBoost] ВНИМАНИЕ: Модель не найдена по пути {model_path}")
             self.model = None
+
+        # Загружаем метаданные
+        meta_path = Path(__file__).parent.parent.parent / "models" / "cb_reg_meta.json"
+        if meta_path.exists():
+            with open(meta_path) as f:
+                self.meta = json.load(f)
+            print(f"[CatBoost] RMSE: {self.meta.get('rmse', 'N/A')}")
+        else:
+            self.meta = {}
 
         # Загружаем эмбеддинги треков
         embeddings_path = Path(__file__).parent.parent.parent / "sim" / "data" / "embeddings.npy"
         self.track_embeddings = np.load(embeddings_path)
 
-        # Кэш для эмбеддингов пользователей
-        self.user_embeddings_cache: Dict[int, np.ndarray] = {}
+        self.track_ids = list(range(len(self.tracks_catalog.tracks)))
 
     def recommend(self, user_id: int, context: Dict[str, Any], n: int) -> List[int]:
-        """
-        Возвращает n рекомендованных треков для пользователя.
-        """
-        # Получаем эмбеддинг пользователя
-        user_embedding = self._get_user_embedding(user_id, context)
+        history = context.get("tracks_history", [])
+        last_reward = context.get("last_reward", 0.5)
 
-        # Если модели нет — fallback на популярные треки
-        if self.model is None:
+        if len(history) < 2 or self.model is None:
             return self._fallback_recommend(context, n)
 
-        # Кандидаты: все треки, кроме тех, что уже в истории
-        history = context.get("tracks_history", [])
-        candidate_tracks = [t for t in self.tracks_catalog.track_ids if t not in history]
+        # Эмбеддинг пользователя
+        hist_embs = [self.track_embeddings[t] for t in history if t < len(self.track_embeddings)]
+        user_emb = np.mean(hist_embs, axis=0) if hist_embs else np.zeros(self.track_embeddings.shape[1])
 
-        if not candidate_tracks:
-            return []
+        # Статистики истории
+        unique_tracks = len(set(history))
+        diversity = unique_tracks / len(history) if history else 0
 
-        # Готовим фичи для CatBoost
+        if len(hist_embs) >= 2:
+            hist_sims = []
+            for j in range(len(hist_embs)-1):
+                sim = np.dot(hist_embs[j], hist_embs[j+1]) / (
+                    np.linalg.norm(hist_embs[j]) * np.linalg.norm(hist_embs[j+1]) + 1e-9
+                )
+                hist_sims.append(sim)
+            avg_hist_sim = np.mean(hist_sims)
+        else:
+            avg_hist_sim = 0
+
+        hist_std = np.std(hist_embs, axis=0).mean() if len(hist_embs) > 1 else 0
+
+        # Кандидаты
+        candidates = [t for t in self.track_ids if t not in history]
+        if not candidates:
+            return self._fallback_recommend(context, n)
+
+        # Ограничиваем кандидатов для скорости
+        if len(candidates) > 500:
+            last_emb = self.track_embeddings[history[-1]]
+            sims = np.dot(self.track_embeddings, last_emb)
+            sims = sims / (np.linalg.norm(self.track_embeddings, axis=1) * np.linalg.norm(last_emb) + 1e-9)
+            for t in history:
+                if t < len(sims):
+                    sims[t] = -1
+            candidates = [int(i) for i in np.argsort(sims)[-500:] if i in candidates]
+
+        # Собираем фичи
         features = []
-        for track_id in candidate_tracks:
-            track_idx = self.tracks_catalog.get_track_index(track_id)
-            if track_idx is None or track_idx >= len(self.track_embeddings):
+        for track_id in candidates:
+            if track_id >= len(self.track_embeddings):
                 continue
 
-            track_emb = self.track_embeddings[track_idx]
+            track_emb = self.track_embeddings[track_id]
 
-            # Фичи:
-            # 1. Косинусное сходство user_emb и track_emb
-            similarity = np.dot(user_embedding, track_emb) / (
-                np.linalg.norm(user_embedding) * np.linalg.norm(track_emb) + 1e-9
+            similarity = np.dot(user_emb, track_emb) / (
+                np.linalg.norm(user_emb) * np.linalg.norm(track_emb) + 1e-9
             )
 
-            # 2. Длительность трека (нормализованная)
-            track_info = self.tracks_catalog.get_track(track_id)
-            duration_norm = track_info.get("duration", 180) / 300.0 if track_info else 0.6
-
-            # 3. Популярность трека
-            popularity = track_info.get("popularity", 0.5) if track_info else 0.5
-
-            # 4. Признак: трек уже был в истории? (всегда 0, т.к. отфильтровали)
-            in_history = 0.0
-
-            # 5. Время с последнего прослушивания (если есть в контексте)
-            time_since_last = context.get("time_since_last_track", 300) / 300.0
-
-            features.append([
+            feat = [
                 similarity,
-                duration_norm,
-                popularity,
-                in_history,
-                time_since_last,
-            ])
+                len(history) / 50.0,
+                last_reward,
+                float(len(history)) / 50.0,
+                np.linalg.norm(user_emb),
+                np.linalg.norm(track_emb),
+                diversity,
+                avg_hist_sim,
+                hist_std,
+            ]
+            features.append(feat)
 
         if not features:
             return self._fallback_recommend(context, n)
 
-        # Предсказываем скоры
-        scores = self.model.predict(features)
+        scores = self.model.predict(np.array(features, dtype=np.float32))
+        best_indices = np.argsort(scores)[::-1][:n]
 
-        # Сортируем и возвращаем топ-n
-        track_score_pairs = list(zip(candidate_tracks[:len(scores)], scores))
-        track_score_pairs.sort(key=lambda x: x[1], reverse=True)
-
-        return [track_id for track_id, _ in track_score_pairs[:n]]
-
-    def _get_user_embedding(self, user_id: int, context: Dict[str, Any]) -> np.ndarray:
-        """Вычисляет эмбеддинг пользователя как среднее эмбеддингов прослушанных треков."""
-        if user_id in self.user_embeddings_cache:
-            return self.user_embeddings_cache[user_id]
-
-        history = context.get("tracks_history", [])
-        if not history:
-            # Новый пользователь — нулевой вектор
-            emb_dim = self.track_embeddings.shape[1]
-            return np.zeros(emb_dim)
-
-        embeddings = []
-        for track_id in history:
-            track_idx = self.tracks_catalog.get_track_index(track_id)
-            if track_idx is not None and track_idx < len(self.track_embeddings):
-                embeddings.append(self.track_embeddings[track_idx])
-
-        if not embeddings:
-            emb_dim = self.track_embeddings.shape[1]
-            return np.zeros(emb_dim)
-
-        user_emb = np.mean(embeddings, axis=0)
-        self.user_embeddings_cache[user_id] = user_emb
-        return user_emb
+        return [candidates[i] for i in best_indices]
 
     def _fallback_recommend(self, context: Dict[str, Any], n: int) -> List[int]:
-        """Fallback: популярные треки, не из истории."""
         history = context.get("tracks_history", [])
-        popular = [
-            t for t in self.tracks_catalog.top_tracks[:100]
-            if t not in history
-        ]
+        popular = [t for t in self.tracks_catalog.top_tracks[:100] if t not in history]
         return popular[:n]
