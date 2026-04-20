@@ -1,4 +1,4 @@
-﻿{
+{
   "REDIS_TRACKS_URL": "redis://redis:6379/0",
   "REDIS_ARTIST_URL": "redis://redis:6379/1",
   "REDIS_LISTEN_HISTORY_URL": "redis://redis:6379/2",
