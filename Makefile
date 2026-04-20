@@ -15,7 +15,19 @@ setup:
 	$(PIP) install -r botify/requirements.txt --timeout 120 -q
 	cd botify && docker compose down -v --remove-orphans 2>/dev/null || true
 	cd botify && docker compose up -d --build --force-recreate --scale recommender=2
-	sleep 20
+	@echo "Waiting for botify readiness on http://localhost:5001/ ..."
+	@for i in $$(seq 1 90); do \
+		if curl -fsS http://localhost:5001/ >/tmp/botify_health.json 2>/dev/null && grep -q '"status"' /tmp/botify_health.json; then \
+			echo "Botify is ready"; \
+			break; \
+		fi; \
+		if [ $$i -eq 90 ]; then \
+			echo "Botify did not become ready in time"; \
+			cd botify && docker compose ps && docker compose logs --tail=200; \
+			exit 1; \
+		fi; \
+		sleep 2; \
+	done
 
 run:
 	cd sim && echo "n" | ../$(PYTHON) -m sim.run \
