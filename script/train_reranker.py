@@ -16,7 +16,6 @@ from pathlib import Path
 from typing import Dict, Iterable, List, Optional
 
 import numpy as np
-import pandas as pd
 
 
 FEATURE_ORDER = [
@@ -31,12 +30,13 @@ FEATURE_ORDER = [
 ]
 
 
-def sessionize_log(df: pd.DataFrame) -> List[dict]:
+def sessionize_log(df) -> List[dict]:
     """Group a flat data-log dataframe into per-user sessions.
 
     A session starts at the first `next` event for a user and ends at the
     first following `last` event.
     """
+    import pandas as pd
     df = df.sort_values(["user", "timestamp"])
     sessions: List[dict] = []
     for user, udf in df.groupby("user"):
@@ -131,7 +131,8 @@ def extract_training_rows(
     return rows
 
 
-def _load_logs(paths: Iterable[str]) -> pd.DataFrame:
+def _load_logs(paths: Iterable[str]):
+    import pandas as pd
     dfs = []
     for p in paths:
         df = pd.read_json(p, lines=True)
@@ -186,6 +187,7 @@ def main():
     rows: List[dict] = []
     for s in sessions:
         rows.extend(extract_training_rows(s, track_meta, i2v))
+    import pandas as pd
     train_df = pd.DataFrame(rows)
     if len(train_df) < 500:
         raise SystemExit(f"Too few training rows: {len(train_df)}")

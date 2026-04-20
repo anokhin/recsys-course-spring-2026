@@ -14,10 +14,12 @@ services:
       context: ..
       dockerfile: botify/Dockerfile
     entrypoint: gunicorn -k gevent -w 2 -b 0.0.0.0:5001 botify.server:app
+    restart: on-failure
     ports:
       - "5001"
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
     environment:
       - PYTHONPATH=/app:/app/botify
       - BOTIFY_COLLECT=${BOTIFY_COLLECT:-0}
@@ -29,3 +31,8 @@ services:
     container_name: redis-container
     ports:
       - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 2s
+      retries: 15

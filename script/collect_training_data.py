@@ -13,10 +13,11 @@ import time
 from pathlib import Path
 
 
-def run(cmd, env=None, cwd=None, shell=False):
+def run(cmd, env=None, cwd=None, shell=False, input_text=None):
     printable = cmd if shell else " ".join(cmd)
-    print(f"$ {printable}")
-    r = subprocess.run(cmd, env=env, cwd=cwd, shell=shell)
+    print(f"$ {printable}", flush=True)
+    r = subprocess.run(cmd, env=env, cwd=cwd, shell=shell,
+                       input=input_text.encode() if input_text else None)
     if r.returncode != 0:
         sys.exit(r.returncode)
 
@@ -29,13 +30,24 @@ def main():
     ap.add_argument("--epsilon", type=float, default=0.3)
     args = ap.parse_args()
 
+    import shutil
     repo = Path(__file__).resolve().parent.parent
     out = (repo / args.out).resolve()
+    if out.exists():
+        shutil.rmtree(out)
     out.mkdir(parents=True, exist_ok=True)
 
     env_file = repo / "botify" / ".env.collect"
     env_file.write_text(f"BOTIFY_COLLECT=1\nBOTIFY_EPSILON={args.epsilon}\n")
     compose_cwd = str(repo / "botify")
+
+    def copy_logs():
+        for i in (1, 2):
+            dest = out / f"botify-recommender-{i}"
+            dest.mkdir(parents=True, exist_ok=True)
+            subprocess.run(["docker", "cp",
+                            f"botify-recommender-{i}:/app/botify/log/.",
+                            str(dest)])
 
     try:
         run(["docker", "compose", "--env-file", str(env_file),
@@ -50,15 +62,19 @@ def main():
         if not venv_py.exists():
             venv_py = Path(sys.executable)
 
-        sim_cmd = (
-            f'echo "n" | "{venv_py}" -m sim.run '
-            f'--episodes {args.episodes} --config config/env.yml '
-            f'single --recommender remote --seed {args.seed}'
-        )
-        run(sim_cmd, cwd=str(repo / "sim"), shell=True)
-
-        run([str(venv_py), str(repo / "script" / "dataclient.py"),
-             "--recommender", "2", "log2local", str(out)])
+        sim_env = dict(os.environ)
+        sim_env["PYTHONPATH"] = str(repo / "sim") + os.pathsep + sim_env.get("PYTHONPATH", "")
+        sim_rc = subprocess.run(
+            [str(venv_py), "-m", "sim.run",
+             "--episodes", str(args.episodes),
+             "--config", "config/env.yml",
+             "single", "--recommender", "remote",
+             "--seed", str(args.seed)],
+            cwd=str(repo / "sim"), env=sim_env,
+            input=b"n\n").returncode
+        if sim_rc != 0:
+            print(f"WARNING: sim exited {sim_rc}; still copying logs")
+        copy_logs()
     finally:
         run(["docker", "compose", "--env-file", str(env_file),
              "down", "-v", "--remove-orphans"], cwd=compose_cwd)

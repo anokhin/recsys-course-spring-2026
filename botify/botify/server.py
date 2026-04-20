@@ -134,6 +134,8 @@ class NextTrack(Resource):
                 recommender = lgbm_reranker
 
         recommendation = recommender.recommend_next(user, args.track, args.time)
+        if recommendation is None:
+            recommendation = int(random_recommender.recommend_next(user, args.track, args.time))
 
         data_logger.log(
             "next",

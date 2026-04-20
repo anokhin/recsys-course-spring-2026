@@ -33,3 +33,9 @@ botify/data/*.json
 *.synctex.gz
 *.nav
 *.snm
+
+# HW2
+.venv/
+.claude/
+/data/
+botify/.env.collect

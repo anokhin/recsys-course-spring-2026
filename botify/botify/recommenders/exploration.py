@@ -52,9 +52,11 @@ class ExplorationRecommender(Recommender):
                 anchors.pop(idx)
                 ws.pop(idx)
 
-        if self.fallback is None:
-            raise RuntimeError("No fallback and no candidates")
-        return self.fallback.recommend_next(user, prev_track, prev_track_time)
+        if self.fallback is not None:
+            rec = self.fallback.recommend_next(user, prev_track, prev_track_time)
+            if rec is not None:
+                return int(rec)
+        return int(prev_track)
 
     def _load_history(self, user: int):
         raw = self.listen_history_redis.lrange(f"user:{user}:listens", 0, -1)
