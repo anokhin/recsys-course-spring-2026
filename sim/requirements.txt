@@ -1,5 +1,6 @@
 aniso8601
 bcrypt
+catboost
 certifi
 cffi
 charset-normalizer

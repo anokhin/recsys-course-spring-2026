@@ -1,0 +1,14 @@
+{
+  "feature_names": [
+    "similarity",
+    "history_len",
+    "last_reward",
+    "position",
+    "user_norm",
+    "track_norm",
+    "diversity",
+    "avg_hist_sim",
+    "history_std"
+  ],
+  "rmse": 0.2266693051318466
+}

@@ -14,6 +14,9 @@ import tqdm
 import yaml
 
 from sim.agents import Recommender, DummyRecommender, RemoteRecommender
+from sim.agents.sasrec_i2i import SasRecI2IRecommender
+from sim.agents.catboost_agent import CatBoostRecommender
+from sim.agents.ab_catboost_agent import ABCatBoostRecommender
 from sim.agents.console import ConsoleRecommender
 from sim.envs import RecEnv
 from sim.envs.config import RecEnvConfigSchema, RecEnvConfig
@@ -21,6 +24,9 @@ from sim.envs.config import RecEnvConfigSchema, RecEnvConfig
 DUMMY = "dummy"
 REMOTE = "remote"
 CONSOLE = "console"
+SASREC = "sasrec"
+CATBOOST = "catboost"
+ABCATBOOST = "abcatboost"
 
 
 @dataclass
@@ -29,6 +35,7 @@ class EpisodeStats:
     episode: int
     reward: float = 0.0
     steps: int = 0
+    treatment: str = None  
 
 
 def run_episode(day: int, episode: int, env: RecEnv, recommender: Recommender):
@@ -37,6 +44,16 @@ def run_episode(day: int, episode: int, env: RecEnv, recommender: Recommender):
     reward = 1.0
 
     stats = EpisodeStats(day, episode)
+    
+    # Определяем группу для A/B теста
+    user_id = observation.get("user", 0)
+    if hasattr(recommender, 'user_assignment'):
+        if user_id in recommender.user_assignment:
+            stats.treatment = recommender.user_assignment[user_id]
+        else:
+            stats.treatment = "unknown"
+    else:
+        stats.treatment = "none"
 
     while not done:
         action = recommender.recommend(observation, reward, done)
@@ -64,6 +81,12 @@ def run_experiment(
         recommender = RemoteRecommender(config.remote_recommender_config)
     elif recommender == CONSOLE:
         recommender = ConsoleRecommender(config.remote_recommender_config)
+    elif recommender == SASREC:
+        recommender = SasRecI2IRecommender(env.action_space)
+    elif recommender == CATBOOST:
+        recommender = CatBoostRecommender(env.action_space)
+    elif recommender == ABCATBOOST:
+        recommender = ABCatBoostRecommender(env.action_space)
     else:
         raise ValueError(f"Unknown recommender type: {recommender}")
 
@@ -79,15 +102,23 @@ def run_single(args):
     config = RecEnvConfigSchema().load(yaml.full_load(open(args.config)))
 
     stats = []
-
     with RecEnv(config) as env:
         env.seed(args.seed)
 
         day = 1
         while True:
-            stats.extend(
-                run_experiment(day, env, args.episodes, args.recommender, config)
-            )
+            day_stats = run_experiment(day, env, args.episodes, args.recommender, config)
+            stats.extend(day_stats)
+            
+            # Выводим результаты по группам
+            df = pd.DataFrame([asdict(s) for s in day_stats])
+            if 'treatment' in df.columns and df['treatment'].notna().any():
+                result_by_treatment = (
+                    df.groupby("treatment")[["reward", "steps"]]
+                    .agg([np.mean, ss.sem])
+                )
+                print(f"\n## Day {day} Results by treatment\n")
+                print(result_by_treatment.to_markdown())
 
             time_control = TimeControl()
             time_control.cmdloop(
@@ -97,6 +128,7 @@ def run_single(args):
                 break
             else:
                 day += 1
+
 
     return stats
 
@@ -168,7 +200,9 @@ def main():
         "single", help="Execute simulator in a single process"
     )
     single_parser.add_argument(
-        "--recommender", choices=[DUMMY, REMOTE, CONSOLE], help="Recommender to use"
+        "--recommender", 
+        choices=[DUMMY, REMOTE, CONSOLE, SASREC, CATBOOST, ABCATBOOST], 
+        help="Recommender to use"
     )
     single_parser.add_argument(
         "--seed", help="Random seed for the env", type=int, default=42

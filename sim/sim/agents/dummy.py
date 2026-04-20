@@ -1,6 +1,6 @@
 from typing import Dict
 
-from .recommender import Recommender
+from sim.agents.base import Recommender
 
 
 class DummyRecommender(Recommender):
