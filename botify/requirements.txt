@@ -6,4 +6,3 @@ mmh3==3.0.0
 gevent
 gunicorn
 scikit-learn
-catboost
