@@ -12,6 +12,7 @@ jobs:
     permissions:
       pull-requests: write
       contents: read
+      issues: write
 
     steps:
       # ── 1. Клонируем репо курса (там лежит checker/ и sim/) ──────────────
