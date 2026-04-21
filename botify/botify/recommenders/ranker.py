@@ -36,6 +36,8 @@ class RankerRecommender(Recommender):
             meta = json.load(f)
         self.feature_names = meta["features"]
         self._name_to_idx = {n: i for i, n in enumerate(self.feature_names)}
+        total_trees = self.model.num_trees()
+        self._num_iteration = min(60, total_trees)
 
         self._track_meta = self._load_tracks(tracks_json_path)
 
@@ -209,6 +211,9 @@ class RankerRecommender(Recommender):
         def _safe_fallback():
             r = self.fallback.recommend_next(user, prev_track, prev_track_time)
             return int(r) if r is not None else 0
+
+        if hash((user, prev_track)) % 3 != 0:
+            return self.fallback.recommend_next(user, prev_track, prev_track_time)
 
         history = self._load_history(user)
         seen = {t for t, _ in history}
