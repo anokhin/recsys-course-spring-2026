@@ -131,6 +131,14 @@ class RankerRecommender(Recommender):
 
         anchors = history[-self.ANCHOR_WINDOW:]
 
+        anchor_rank_tables = []
+        for a_track, a_time in anchors:
+            sn = self._i2i_neighbours(self.sasrec_i2i_redis, self._sasrec_cache, a_track)
+            ln = self._i2i_neighbours(self.lightfm_i2i_redis, self._lightfm_cache, a_track)
+            sas_idx = {t: r + 1 for r, t in enumerate(sn)}
+            lf_idx = {t: r + 1 for r, t in enumerate(ln)}
+            anchor_rank_tables.append((a_time, sas_idx, lf_idx))
+
         feats = np.zeros((len(candidates), len(self.feature_names)), dtype=np.float64)
 
         for row_idx, cand in enumerate(candidates):
@@ -158,21 +166,15 @@ class RankerRecommender(Recommender):
             sas_hits = lf_hits = 0
             sas_best = lf_best = 11
             sas_w = lf_w = 0.0
-            for a_track, a_time in anchors:
-                sn = self._i2i_neighbours(
-                    self.sasrec_i2i_redis, self._sasrec_cache, a_track
-                )
-                if cand in sn:
-                    rank = sn.index(cand) + 1
+            for a_time, sas_idx, lf_idx in anchor_rank_tables:
+                rank = sas_idx.get(cand)
+                if rank is not None:
                     sas_hits += 1
                     if rank < sas_best:
                         sas_best = rank
                     sas_w += a_time * (11 - rank) / 10.0
-                ln = self._i2i_neighbours(
-                    self.lightfm_i2i_redis, self._lightfm_cache, a_track
-                )
-                if cand in ln:
-                    rank = ln.index(cand) + 1
+                rank = lf_idx.get(cand)
+                if rank is not None:
                     lf_hits += 1
                     if rank < lf_best:
                         lf_best = rank
