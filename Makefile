@@ -23,7 +23,7 @@ run:
 		--config   config/env.yml \
 		single --recommender remote --seed $(SEED)
 	mkdir -p $(DATA_DIR)
-	$(PYTHON) script/dataclient.py --recommender 2 log2local $(DATA_DIR)
+	$(PYTHON) script/dataclient.py --recommender 2 log2local --log-dir /app/botify/log/. $(DATA_DIR)
 	$(PYTHON) analyze_ab.py --data $(DATA_DIR) --output $(DATA_DIR)/ab_result.json
 
 clean:

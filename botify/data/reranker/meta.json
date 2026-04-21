@@ -1,0 +1,15 @@
+{
+  "feature_order": [
+    "history_len",
+    "mean_prev_time",
+    "last_time",
+    "prev_artist_match",
+    "candidate_rank",
+    "i2v_cos_mean",
+    "i2v_cos_last",
+    "candidate_seen_before"
+  ],
+  "top_k": 50,
+  "num_train_rows": 23177,
+  "positive_rate": 0.6594037192043837
+}
