@@ -11,15 +11,9 @@ from .recommender import Recommender
 
 
 class RankerRecommender(Recommender):
-    """
-    Two-stage recommender:
-      candgen: union of SasRec-i2i and LightFM-i2i top-K of last N anchors
-      ranker:  LightGBM regressor predicting listen_time of the next track
-    """
-
-    ANCHOR_WINDOW = 5
-    TOPK_PER_ANCHOR = 10
-    MAX_CANDIDATES = 200
+    ANCHOR_WINDOW = 3
+    TOPK_PER_ANCHOR = 5
+    MAX_CANDIDATES = 30
     MIN_KEEP_HISTORY_FOR_ML = 1
 
     def __init__(
