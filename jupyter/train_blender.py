@@ -32,7 +32,7 @@ from collections import defaultdict
 from pathlib import Path
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "botify" / "data"
-WEIGHTS_PATH = Path(__file__).resolve().parent / "blender_weights.json"
+WEIGHTS_PATH = DATA_DIR / "blender_weights.json"
 
 EASE_PATH = DATA_DIR / "recommendations_ease.json"
 HSTU_PATH = DATA_DIR / "hstu_recommendations.json"

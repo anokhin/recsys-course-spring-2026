@@ -67,7 +67,7 @@ class Experiments:
     I2I = Experiment("I2I", Split.THREE_WAY)
     HSTU = Experiment("HSTU", Split.HALF_HALF)
     EASE = Experiment("EASE", Split.HALF_HALF)
-    RERANKER = Experiment("RERANKER", Split.HALF_HALF)
+    SESSION_BLENDER = Experiment("SESSION_BLENDER", Split.HALF_HALF)
 
     def __init__(self):
-        self.experiments = [Experiments.RERANKER]
+        self.experiments = [Experiments.SESSION_BLENDER]

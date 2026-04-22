@@ -15,7 +15,7 @@ from botify.experiment import Experiments, Treatment
 from botify.recommenders.i2i import I2IRecommender
 from botify.recommenders.random import Random
 from botify.recommenders.indexed import Indexed
-from botify.recommenders.reranker import Reranker
+from botify.recommenders.session_blender import SessionBlender
 from botify.recommenders.sticky_artist import StickyArtist
 from botify.track import Catalog
 
@@ -34,7 +34,15 @@ recommendations_contextual_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIO
 
 recommendations_hstu_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_HSTU")
 recommendations_ease_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_EASE")
-recommendations_reranker_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_RERANKER")
+
+BLENDER_WEIGHTS_PATH = app.config.get(
+    "BLENDER_WEIGHTS_FILE_PATH", "./data/blender_weights.json"
+)
+try:
+    with open(BLENDER_WEIGHTS_PATH) as _wf:
+        _blender_weights = json.load(_wf)["weights"]
+except (FileNotFoundError, KeyError, json.JSONDecodeError):
+    _blender_weights = {"sasrec": 1.0, "lightfm": 0.5}
 
 data_logger = DataLogger(app)
 atexit.register(data_logger.close)
@@ -75,23 +83,22 @@ catalog.upload_recommendations(
     "RECOMMENDATIONS_EASE_FILE_PATH",
 )
 
-catalog.upload_recommendations(
-    recommendations_reranker_redis.connection,
-    "RECOMMENDATIONS_RERANKER_FILE_PATH",
-)
-
 sasrec_i2i_recommender = I2IRecommender(
     listen_history_redis.connection,
     recommendations_contextual_redis.connection,
     random_recommender,
 )
 
-reranker_recommender = Reranker(
-    listen_history_redis.connection,
-    recommendations_reranker_redis.connection,
-    catalog,
-    sasrec_i2i_recommender,
+session_blender_recommender = SessionBlender(
+    listen_history_redis=listen_history_redis.connection,
+    tracks_redis=tracks_redis.connection,
+    sasrec_i2i_redis=recommendations_contextual_redis.connection,
+    lightfm_i2i_redis=recommendations_lfm_redis.connection,
+    catalog=catalog,
+    weights=_blender_weights,
+    fallback=sasrec_i2i_recommender,
 )
+app.logger.info(f"SessionBlender weights: {_blender_weights}")
 
 parser = reqparse.RequestParser()
 parser.add_argument("track", type=int, location="json", required=True)
@@ -131,14 +138,14 @@ class NextTrack(Resource):
         args = parser.parse_args()
         persist_user_listen_history(user, args.track, args.time)
 
-        treatment = Experiments.RERANKER.assign(user)
+        treatment = Experiments.SESSION_BLENDER.assign(user)
 
         if treatment == Treatment.C:
             recommender = sasrec_i2i_recommender
         elif treatment == Treatment.T1:
-            recommender = reranker_recommender
+            recommender = session_blender_recommender
         else:
-            recommender = random_recommender
+            recommender = sasrec_i2i_recommender
 
         recommendation = recommender.recommend_next(user, args.track, args.time)
 

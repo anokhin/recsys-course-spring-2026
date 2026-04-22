@@ -7,7 +7,7 @@ botify/data/*.json
 !botify/data/tracks.json
 !botify/data/hstu_recommendations.json
 !botify/data/recommendations_ease.json
-!botify/data/recommendations_reranker.json
+!botify/data/blender_weights.json
 .DS_Store
 
 # LaTeX
