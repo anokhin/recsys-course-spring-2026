@@ -1,32 +1,26 @@
-## Homework 2 Report
-## Отчет по эксперименту: EASE^R с time-confidence
+## Homework 2 Report — Learned-to-Rank blender над SASRec + EASE + HSTU + LightFM
 
 ### Abstract
-Вместо seq/i2i-бейзлайна внедрен линейный item-item автоэнкодер EASE^R, обученный на взвешенных взаимодействиях по доле прослушивания `t_ui in [0,1]`, а не на бинарных событиях. Confidence задается сигмоидой: длинные прослушивания усиливаются, скипы почти зануляются. Модель считается в закрытой форме (ridge regression) по всем трекам сразу, дополнительно применяются дебиасировка популярности `pop(i)^(-beta)` и нормализация колонок, что снижает перекос на хиты и улучшает сессионные метрики.
+Тритмент обслуживается ML-реранкером, который для каждого юзера смешивает top-10 кандидатов от четырёх моделей — `SASRec`, `EASE`, `HSTU`, `LightFM`. Веса моделей **обучены**: leave-one-out OLS прячет top-10 одной модели и учит по трём остальным предсказывать, был ли трек в её top-10. Итоговые веса — среднее коэффициентов по четырём прогонам. Контроль `C` — чистый SasRec-I2I, тритмент `T1` — ML-реранкер.
 
 ### Детали
-События не отбрасывались, включая скипы. Для снижения шума оставлены треки с минимум `5` взаимодействиями (пользователи без фильтрации). Затем строилась матрица `X`, применялись sigmoid-confidence, популярностный reweighting и нормализация колонок.
-
-Финальные веса считались аналитически: `B = -P / diag(P)`, где `P = (X^T X + lambda I)^(-1)` и `diag(B)=0`. По сравнению с локальным i2i, EASE^R использует глобальный co-listen граф и лучше учитывает силу сигнала по времени прослушивания.
+Per-user моделей (EASE, HSTU) берём топ-10 напрямую. Для i2i (SASRec, LightFM) собираем per-user топ-10 по 5 якорям из EASE (fallback HSTU) с агрегацией `pos_w(anchor) · pos_w(cand)`, `pos_w(p) = 1 / log₂(2 + p)`. Тренер [jupyter/train_blender.py](jupyter/train_blender.py) решает 4 OLS-системы в закрытой форме (ridge λ=1e-3), усредняет β и max-нормирует. Учёные веса: **SASRec=1.0, LightFM=0.76, EASE=0.24, HSTU=0.04**. Финальный скор `score(t) = Σₘ Wₘ · pos_w(rankₘ(t))` сортируется в топ-10 и пишется в `botify/data/recommendations_reranker.json`. Онлайн [botify/botify/recommenders/reranker.py](botify/botify/recommenders/reranker.py) фильтрует прослушанное через `listen_history`, выдаёт трек с геом. биасом `p=0.6` к вершине, fallback — SasRec-I2I.
 
 ```mermaid
 flowchart LR
-    A["JSON logs user track time"] --> B["clip time to 0..1"]
-    B --> C["keep tracks with at least 5 events"]
-    C --> D["confidence = sigmoid time"]
-    D --> E["popularity debias pop power minus beta"]
-    E --> F["column normalization"]
-    F --> G["EASE closed form solve"]
-    G --> H["item to item score matrix B"]
-    H --> I["A B test in simulator"]
+    S[SASRec i2i] --> A[per-user top-10<br/>по EASE якорям]
+    L[LightFM i2i] --> A
+    E[EASE per-user] --> B[top-10]
+    H[HSTU per-user] --> B
+    A --> F[leave-one-out OLS<br/>4 regressions → avg β]
+    B --> F
+    F --> W[learned weights]
+    A --> R[weighted DCG blend]
+    B --> R
+    W --> R
+    R --> J[recommendations_reranker.json]
+    J --> T[Treatment T1]
+    X[SasRec-I2I] --> C[Control C]
 ```
-### Результаты A/B эксперимента
-В `T1` (EASE^R) получен статистически значимый рост по двум ключевым метрикам вовлеченности: `mean_time_per_session` и `mean_tracks_per_session`. По latency, числу сессий и суммарному времени статистически значимого ухудшения нет.
 
-| treatment | metric               | effect   | lower    | upper    | control_mean | treatment_mean | significant |
-|-----------|----------------------|----------|----------|----------|--------------|----------------|-------------|
-| T1        | mean_request_latency | 0.231026 | -0.891637| 1.353688 | 1.145261     | 1.147907       | False       |
-| T1        | mean_time_per_session| 4.518802 | 0.760773 | 8.276831 | 5.547980     | 5.798682       | True        |
-| T1        | mean_tracks_per_session | 2.784529 | 0.627172 | 4.941886 | 10.529291    | 10.822482      | True        |
-| T1        | sessions             | -1.317834| -3.819657| 1.183989 | 1.451740     | 1.432609       | False       |
-| T1        | time                 | 1.249565 | -3.313689| 5.812820 | 8.096954     | 8.198130       | False       |
+### Результаты A/B эксперимента

@@ -15,6 +15,7 @@ from botify.experiment import Experiments, Treatment
 from botify.recommenders.i2i import I2IRecommender
 from botify.recommenders.random import Random
 from botify.recommenders.indexed import Indexed
+from botify.recommenders.reranker import Reranker
 from botify.recommenders.sticky_artist import StickyArtist
 from botify.track import Catalog
 
@@ -33,6 +34,7 @@ recommendations_contextual_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIO
 
 recommendations_hstu_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_HSTU")
 recommendations_ease_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_EASE")
+recommendations_reranker_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_RERANKER")
 
 data_logger = DataLogger(app)
 atexit.register(data_logger.close)
@@ -73,10 +75,22 @@ catalog.upload_recommendations(
     "RECOMMENDATIONS_EASE_FILE_PATH",
 )
 
+catalog.upload_recommendations(
+    recommendations_reranker_redis.connection,
+    "RECOMMENDATIONS_RERANKER_FILE_PATH",
+)
+
 sasrec_i2i_recommender = I2IRecommender(
     listen_history_redis.connection,
     recommendations_contextual_redis.connection,
     random_recommender,
+)
+
+reranker_recommender = Reranker(
+    listen_history_redis.connection,
+    recommendations_reranker_redis.connection,
+    catalog,
+    sasrec_i2i_recommender,
 )
 
 parser = reqparse.RequestParser()
@@ -117,16 +131,12 @@ class NextTrack(Resource):
         args = parser.parse_args()
         persist_user_listen_history(user, args.track, args.time)
 
-        treatment = Experiments.EASE.assign(user)
+        treatment = Experiments.RERANKER.assign(user)
 
         if treatment == Treatment.C:
             recommender = sasrec_i2i_recommender
         elif treatment == Treatment.T1:
-            recommender = Indexed(
-                recommendations_ease_redis.connection,
-                catalog,
-                random_recommender,
-            )
+            recommender = reranker_recommender
         else:
             recommender = random_recommender
 

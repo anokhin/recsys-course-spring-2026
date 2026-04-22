@@ -1,0 +1,61 @@
+{
+  "weights": {
+    "sasrec": 1.0,
+    "ease": 0.2372,
+    "hstu": 0.0415,
+    "lightfm": 0.7562
+  },
+  "averaged_raw": {
+    "sasrec": 0.309051,
+    "ease": 0.073316,
+    "hstu": 0.012831,
+    "lightfm": 0.233717
+  },
+  "per_oracle": {
+    "sasrec": {
+      "coefs": {
+        "ease": 0.175971,
+        "hstu": 0.012354,
+        "lightfm": 0.646089
+      },
+      "rows": 224455,
+      "positives": 41885,
+      "positive_rate": 0.1866
+    },
+    "ease": {
+      "coefs": {
+        "sasrec": 0.262578,
+        "hstu": 0.014203,
+        "lightfm": 0.044561
+      },
+      "rows": 198944,
+      "positives": 17226,
+      "positive_rate": 0.0866
+    },
+    "hstu": {
+      "coefs": {
+        "sasrec": 0.011061,
+        "ease": 0.012572,
+        "lightfm": 0.010502
+      },
+      "rows": 82615,
+      "positives": 591,
+      "positive_rate": 0.0072
+    },
+    "lightfm": {
+      "coefs": {
+        "sasrec": 0.653514,
+        "ease": 0.031405,
+        "hstu": 0.011935
+      },
+      "rows": 215929,
+      "positives": 33072,
+      "positive_rate": 0.1532
+    }
+  },
+  "feature": "position_weight = 1 / log2(2 + pos), 0 if absent",
+  "target": "binary: candidate is in held-out oracle top-K",
+  "procedure": "leave-one-out OLS; final weight = mean \u03b2_m over oracles where m was a feature",
+  "top_k": 10,
+  "anchor_k": 5
+}
