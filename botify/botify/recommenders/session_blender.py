@@ -59,6 +59,13 @@ class SessionBlender(Recommender):
         self.w_lightfm = float(weights.get("lightfm", 0.5))
         self.fallback = fallback
 
+        # Per-worker lazy caches. i2i tables and track→artist mappings are
+        # immutable for the lifetime of the process, so we hit redis at most
+        # once per (track,table) pair instead of on every request.
+        self._sasrec_cache = {}
+        self._lightfm_cache = {}
+        self._artist_cache = {}
+
     def recommend_next(self, user, prev_track, prev_track_time):
         history = self._load_history(user)
         if not history:
@@ -79,12 +86,12 @@ class SessionBlender(Recommender):
 
             self._accumulate(
                 scores, seen,
-                self.sasrec_i2i_redis, anchor,
+                self.sasrec_i2i_redis, self._sasrec_cache, anchor,
                 self.w_sasrec * anchor_weight,
             )
             self._accumulate(
                 scores, seen,
-                self.lightfm_i2i_redis, anchor,
+                self.lightfm_i2i_redis, self._lightfm_cache, anchor,
                 self.w_lightfm * anchor_weight,
             )
 
@@ -104,21 +111,26 @@ class SessionBlender(Recommender):
         best_track = max(scores.items(), key=lambda kv: kv[1])[0]
         return int(best_track)
 
-    def _accumulate(self, scores, seen, i2i_redis, anchor, base_weight):
-        neighbours = self._i2i_neighbours(i2i_redis, anchor)
+    def _accumulate(self, scores, seen, i2i_redis, cache, anchor, base_weight):
+        neighbours = self._i2i_neighbours(i2i_redis, cache, anchor)
         for rank, cand in enumerate(neighbours):
             if cand in seen:
                 continue
             scores[cand] += base_weight / math.log2(2 + rank)
 
-    def _i2i_neighbours(self, redis_conn, track):
+    def _i2i_neighbours(self, redis_conn, cache, track):
+        if track in cache:
+            return cache[track]
         data = redis_conn.get(track)
         if data is None:
+            cache[track] = ()
             return ()
         try:
-            return [int(t) for t in pickle.loads(data)]
+            neighbours = tuple(int(t) for t in pickle.loads(data))
         except Exception:
-            return ()
+            neighbours = ()
+        cache[track] = neighbours
+        return neighbours
 
     def _load_history(self, user):
         raw = self.listen_history_redis.lrange(
@@ -145,11 +157,16 @@ class SessionBlender(Recommender):
         return counts
 
     def _artist_of(self, track):
+        if track in self._artist_cache:
+            return self._artist_cache[track]
         raw = self.tracks_redis.get(track)
         if raw is None:
+            self._artist_cache[track] = None
             return None
         try:
             record = self.catalog.from_bytes(raw)
+            artist = getattr(record, "artist", None)
         except Exception:
-            return None
-        return getattr(record, "artist", None)
+            artist = None
+        self._artist_cache[track] = artist
+        return artist
