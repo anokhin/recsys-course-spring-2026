@@ -6,8 +6,6 @@ botify/log/*
 botify/data/*.json
 !botify/data/tracks.json
 .DS_Store
-offline_validation*/
-sim/local_data/
 
 # LaTeX
 *.aux
