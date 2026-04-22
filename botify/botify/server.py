@@ -28,6 +28,8 @@ tracks_redis = Redis(app, config_prefix="REDIS_TRACKS")
 artists_redis = Redis(app, config_prefix="REDIS_ARTIST")
 listen_history_redis = Redis(app, config_prefix="REDIS_LISTEN_HISTORY")
 recommendations_contextual_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_SASREC")
+recommendations_lfm_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_LFM")
+recommendations_hstu_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_HSTU")
 
 data_logger = DataLogger(app)
 atexit.register(data_logger.close)
@@ -44,6 +46,18 @@ catalog.upload_recommendations(
     key_object="item_id",
     key_recommendations="recommendations",
 )
+catalog.upload_recommendations(
+    recommendations_lfm_redis.connection,
+    "RECOMMENDATIONS_LFM_FILE_PATH",
+    key_object="item_id",
+    key_recommendations="recommendations",
+)
+catalog.upload_recommendations(
+    recommendations_hstu_redis.connection,
+    "RECOMMENDATIONS_HSTU_FILE_PATH",
+    key_object="user",
+    key_recommendations="tracks",
+)
 
 sasrec_i2i_recommender = I2IRecommender(
     listen_history_redis.connection,
@@ -56,9 +70,17 @@ session_semantic_recommender = SessionSemanticRecommender(
     app.config["SESSION_SEMANTIC_EMBEDDINGS_FILE_PATH"],
     sasrec_i2i_recommender,
     i2i_redis=recommendations_contextual_redis.connection,
-    artist_penalty=0.12,
+    lfm_i2i_redis=recommendations_lfm_redis.connection,
+    hstu_redis=recommendations_hstu_redis.connection,
+    artist_penalty=0.22,
+    session_profile_weight=0.78,
+    prototype_weight=0.22,
+    hstu_prior_weight=0.0,
+    i2i_bonus=0.07,
+    lfm_bonus=0.0,
+    hstu_bonus=0.0,
     semantic_gate=0.14,
-    min_margin=0.01,
+    min_margin=0.010,
 )
 
 parser = reqparse.RequestParser()
@@ -104,6 +126,7 @@ class NextTrack(Resource):
         if treatment == Treatment.C:
             recommender = sasrec_i2i_recommender
         else:
+            session_semantic_recommender.observe(user, args.track, args.time)
             recommender = session_semantic_recommender
 
         recommendation = recommender.recommend_next(user, args.track, args.time)
@@ -127,6 +150,9 @@ class LastTrack(Resource):
         start = time.time()
         args = parser.parse_args()
         persist_user_listen_history(user, args.track, args.time)
+        if Experiments.SESSION_SEMANTIC.assign(user) != Treatment.C:
+            session_semantic_recommender.observe(user, args.track, args.time)
+            session_semantic_recommender.finish_session(user)
         data_logger.log(
             "last",
             Datum(

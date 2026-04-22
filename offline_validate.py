@@ -125,12 +125,19 @@ class LocalABAgent:
 
         start = time.perf_counter()
         if done:
+            if self.experiments.SESSION_SEMANTIC.assign(user) != Treatment.C:
+                self.treatment.observe(user, track, reward)
+                self.treatment.finish_session(user)
             latency = time.perf_counter() - start
             self._log_event("last", user, track, reward, latency, recommendation=None)
             return track
 
         treatment = self.experiments.SESSION_SEMANTIC.assign(user)
-        recommender = self.control if treatment == Treatment.C else self.treatment
+        if treatment == Treatment.C:
+            recommender = self.control
+        else:
+            self.treatment.observe(user, track, reward)
+            recommender = self.treatment
         recommendation = int(recommender.recommend_next(user, track, reward))
         latency = time.perf_counter() - start
         self._log_event("next", user, track, reward, latency, recommendation=recommendation)
@@ -172,14 +179,34 @@ def build_agent(log_path: Path) -> LocalABAgent:
     tracks_redis = InMemoryRedis()
     history_redis = InMemoryRedis()
     sasrec_redis = InMemoryRedis()
+    lfm_redis = InMemoryRedis()
+    hstu_redis = InMemoryRedis()
 
     catalog.upload_tracks(tracks_redis)
-    catalog.app = _App({"RECOMMENDATIONS_SASREC_FILE_PATH": str(BOTIFY_ROOT / "data" / "sasrec_i2i.jsonl")})
+    catalog.app = _App(
+        {
+            "RECOMMENDATIONS_SASREC_FILE_PATH": str(BOTIFY_ROOT / "data" / "sasrec_i2i.jsonl"),
+            "RECOMMENDATIONS_LFM_FILE_PATH": str(BOTIFY_ROOT / "data" / "lightfm_i2i.jsonl"),
+            "RECOMMENDATIONS_HSTU_FILE_PATH": str(BOTIFY_ROOT / "data" / "hstu_recommendations.json"),
+        }
+    )
     catalog.upload_recommendations(
         sasrec_redis,
         "RECOMMENDATIONS_SASREC_FILE_PATH",
         key_object="item_id",
         key_recommendations="recommendations",
+    )
+    catalog.upload_recommendations(
+        lfm_redis,
+        "RECOMMENDATIONS_LFM_FILE_PATH",
+        key_object="item_id",
+        key_recommendations="recommendations",
+    )
+    catalog.upload_recommendations(
+        hstu_redis,
+        "RECOMMENDATIONS_HSTU_FILE_PATH",
+        key_object="user",
+        key_recommendations="tracks",
     )
 
     random_recommender = Random(tracks_redis)
@@ -190,9 +217,17 @@ def build_agent(log_path: Path) -> LocalABAgent:
         BOTIFY_ROOT / "data" / "session_semantic_embeddings.npz",
         control,
         i2i_redis=sasrec_redis,
-        artist_penalty=0.12,
+        lfm_i2i_redis=lfm_redis,
+        hstu_redis=hstu_redis,
+        artist_penalty=0.22,
+        session_profile_weight=0.78,
+        prototype_weight=0.22,
+        hstu_prior_weight=0.0,
+        i2i_bonus=0.07,
+        lfm_bonus=0.0,
+        hstu_bonus=0.0,
         semantic_gate=0.14,
-        min_margin=0.01,
+        min_margin=0.010,
     )
 
     log_fp = log_path.open("w", encoding="utf-8")

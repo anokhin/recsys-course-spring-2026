@@ -14,35 +14,50 @@ class SessionSemanticRecommender(Recommender):
         embeddings_path,
         fallback_recommender,
         i2i_redis=None,
-        artist_penalty=0.0,
+        lfm_i2i_redis=None,
+        hstu_redis=None,
+        artist_penalty=0.22,
         min_weight=0.05,
-        recent_history_limit=5,
+        recent_history_limit=6,
         skip_time_threshold=0.2,
-        max_semantic_anchors=4,
         max_i2i_anchors=3,
-        semantic_candidate_limit=256,
-        i2i_bonus=0.08,
-        semantic_gate=0.18,
-        min_margin=0.015,
+        session_profile_weight=0.78,
+        prototype_weight=0.22,
+        hstu_prior_weight=0.0,
+        negative_penalty=0.08,
+        max_user_prototypes=6,
+        prototype_match_threshold=0.58,
+        i2i_bonus=0.07,
+        lfm_bonus=0.0,
+        hstu_bonus=0.0,
+        semantic_gate=0.14,
+        min_margin=0.010,
     ):
         self.listen_history_redis = listen_history_redis
         self.catalog = catalog
         self.fallback_recommender = fallback_recommender
         self.i2i_redis = i2i_redis
+        self.lfm_i2i_redis = lfm_i2i_redis
+        self.hstu_redis = hstu_redis
         self.artist_penalty = artist_penalty
         self.min_weight = min_weight
         self.recent_history_limit = recent_history_limit
         self.skip_time_threshold = skip_time_threshold
-        self.max_semantic_anchors = max_semantic_anchors
         self.max_i2i_anchors = max_i2i_anchors
-        self.semantic_candidate_limit = semantic_candidate_limit
+        self.session_profile_weight = session_profile_weight
+        self.prototype_weight = prototype_weight
+        self.hstu_prior_weight = hstu_prior_weight
+        self.negative_penalty = negative_penalty
+        self.max_user_prototypes = max_user_prototypes
+        self.prototype_match_threshold = prototype_match_threshold
         self.i2i_bonus = i2i_bonus
+        self.lfm_bonus = lfm_bonus
+        self.hstu_bonus = hstu_bonus
         self.semantic_gate = semantic_gate
         self.min_margin = min_margin
 
         data = np.load(Path(embeddings_path))
         self.item_vectors = np.ascontiguousarray(data["vectors"].astype(np.float32))
-        self.neighbors = np.ascontiguousarray(data["neighbors"].astype(np.int32))
         norms = np.linalg.norm(self.item_vectors, axis=1, keepdims=True) + 1e-8
         self.item_vectors_unit = self.item_vectors / norms
 
@@ -51,93 +66,152 @@ class SessionSemanticRecommender(Recommender):
 
         artist_names = [track.artist for track in sorted(self.catalog.tracks, key=lambda x: x.track)]
         artist_to_id = {artist: idx for idx, artist in enumerate(sorted(set(artist_names)))}
-        self.track_artist_ids = np.array(
-            [artist_to_id[artist] for artist in artist_names],
-            dtype=np.int32,
-        )
+        self.track_artist_ids = np.array([artist_to_id[artist] for artist in artist_names], dtype=np.int32)
         self.n_artists = len(artist_to_id)
 
+        # Current-session state should not leak into the next session.
+        self.active_sessions = {}
+
+        # Long-term user memory: online prototypes of hidden interests.
+        self.user_prototypes = {}
+        self.user_prototype_weights = {}
+
+    def observe(self, user: int, track: int, listened_time: float):
+        self.active_sessions.setdefault(user, []).append((int(track), float(listened_time)))
+
+    def finish_session(self, user: int):
+        session_history = self.active_sessions.pop(user, None)
+        if not session_history:
+            return
+
+        positive_history = [
+            (track, listened_time)
+            for track, listened_time in session_history
+            if listened_time >= self.skip_time_threshold
+        ]
+        if not positive_history:
+            return
+
+        session_vector = self._weighted_centroid(positive_history, decay=0.95)
+        if session_vector is None:
+            return
+
+        session_weight = float(
+            sum(max(float(listened_time), self.min_weight) for _, listened_time in positive_history)
+        )
+        prototypes = self.user_prototypes.setdefault(user, [])
+        prototype_weights = self.user_prototype_weights.setdefault(user, [])
+
+        if prototypes:
+            sims = np.asarray([float(np.dot(proto, session_vector)) for proto in prototypes], dtype=np.float32)
+            best_idx = int(np.argmax(sims))
+            if float(sims[best_idx]) >= self.prototype_match_threshold:
+                old_proto = prototypes[best_idx]
+                old_weight = float(prototype_weights[best_idx])
+                blend = min(session_weight / max(old_weight + session_weight, self.min_weight), 0.35)
+                prototypes[best_idx] = self._normalize((1.0 - blend) * old_proto + blend * session_vector)
+                prototype_weights[best_idx] = min(old_weight * 0.97 + session_weight, 24.0)
+                return
+
+        if len(prototypes) < self.max_user_prototypes:
+            prototypes.append(session_vector)
+            prototype_weights.append(session_weight)
+            return
+
+        weakest_idx = int(np.argmin(np.asarray(prototype_weights, dtype=np.float32)))
+        if session_weight >= 0.85 * float(prototype_weights[weakest_idx]):
+            prototypes[weakest_idx] = session_vector
+            prototype_weights[weakest_idx] = session_weight
+
     def recommend_next(self, user: int, prev_track: int, prev_track_time: float) -> int:
-        history = self._load_user_history(user)
-        if not history:
+        session_history = list(self.active_sessions.get(user, []))
+        if not session_history:
+            # Fallback for cold-start / restarted process; normal traffic should use
+            # the in-memory session buffer populated by observe().
+            session_history = list(reversed(self._load_user_history(user)))[: self.recent_history_limit]
+        if not session_history:
             return self.fallback_recommender.recommend_next(user, prev_track, prev_track_time)
 
-        recent_history = [
+        session_recent = session_history[-self.recent_history_limit :]
+        positive_history = [
             (track, listened_time)
-            for track, listened_time in history
+            for track, listened_time in session_recent
             if listened_time >= self.skip_time_threshold
-        ][: self.recent_history_limit]
-        if not recent_history:
-            recent_history = history[: self.recent_history_limit]
+        ]
+        if not positive_history:
+            positive_history = session_recent
 
-        history_tracks = np.array([track for track, _ in recent_history], dtype=np.int32)
-        weights = np.array(
-            [
-                max(float(listened_time), self.min_weight) * (0.9 ** idx)
-                for idx, (_, listened_time) in enumerate(recent_history)
-            ],
-            dtype=np.float32,
-        )
-
-        profile = self._estimate_session_profile(recent_history)
-        profile /= np.linalg.norm(profile) + 1e-8
-
-        seen_tracks = {track for track, _ in history}
-        baseline_candidates = self._load_i2i_candidates(recent_history, seen_tracks)
+        seen_tracks = {track for track, _ in session_history}
         if len(seen_tracks) >= self.item_vectors.shape[0]:
             return self.fallback_recommender.recommend_next(user, prev_track, prev_track_time)
 
+        session_profile = self._estimate_session_profile(session_recent)
+        prototype_prior = self._select_user_prototype(user, session_profile, positive_history)
+        negative_profile = self._negative_profile(session_recent)
+
+        hstu_candidates = self._load_user_candidates(self.hstu_redis, user, seen_tracks)
+        hstu_prior = self._prior_from_candidates(hstu_candidates)
+
+        profile = self._combine_profiles(session_profile, prototype_prior, hstu_prior)
+        if profile is None:
+            return self.fallback_recommender.recommend_next(user, prev_track, prev_track_time)
+
         scores = self.item_vectors_unit @ profile
+        if negative_profile is not None:
+            scores -= self.negative_penalty * (self.item_vectors_unit @ negative_profile)
+
         if seen_tracks:
             seen_idx = np.fromiter(sorted(seen_tracks), dtype=np.int32)
             scores[seen_idx] = -np.inf
 
         if self.artist_penalty > 0.0:
-            artist_counts = np.bincount(
-                self.track_artist_ids[history_tracks],
-                minlength=self.n_artists,
+            session_artists = np.array(
+                [self.track_artist_ids[int(track)] for track, _ in session_history],
+                dtype=np.int32,
             )
+            artist_counts = np.bincount(session_artists, minlength=self.n_artists)
             scores -= self.artist_penalty * artist_counts[self.track_artist_ids]
 
-        baseline_bonus = np.zeros_like(scores, dtype=np.float32)
-        baseline_bonus_map = {
-            track: self.i2i_bonus * (len(baseline_candidates) - rank) / max(len(baseline_candidates), 1)
-            for rank, track in enumerate(baseline_candidates)
-        }
-        if baseline_bonus_map:
-            idx = np.fromiter(baseline_bonus_map.keys(), dtype=np.int32)
-            baseline_bonus[idx] = np.fromiter(baseline_bonus_map.values(), dtype=np.float32)
-            scores += baseline_bonus
+        source_bonus = {}
+        sas_candidates = self._load_i2i_candidates(positive_history, seen_tracks, self.i2i_redis)
+        lfm_candidates = self._load_i2i_candidates(positive_history, seen_tracks, self.lfm_i2i_redis)
+        self._merge_bonus(source_bonus, sas_candidates, self.i2i_bonus)
+        self._merge_bonus(source_bonus, lfm_candidates, self.lfm_bonus)
+        self._merge_bonus(source_bonus, hstu_candidates, self.hstu_bonus)
+        if source_bonus:
+            idx = np.fromiter(source_bonus.keys(), dtype=np.int32)
+            bonus = np.fromiter(source_bonus.values(), dtype=np.float32)
+            scores[idx] += bonus
 
         best_idx = int(np.argmax(scores))
-        best_track = best_idx
-        finite_scores = scores[np.isfinite(scores)]
         top_score = float(scores[best_idx])
+        finite_scores = scores[np.isfinite(scores)]
         if finite_scores.size > 1:
             next_score = float(np.partition(finite_scores, -2)[-2])
             margin = top_score - next_score
         else:
             margin = top_score
 
-        if top_score < self.semantic_gate and baseline_candidates:
-            return int(baseline_candidates[0])
-        if margin < self.min_margin and baseline_candidates:
-            return int(baseline_candidates[0])
+        fallback_track = sas_candidates[0] if sas_candidates else None
+        if fallback_track is not None and top_score < self.semantic_gate:
+            return int(fallback_track)
+        if fallback_track is not None and margin < self.min_margin:
+            return int(fallback_track)
 
-        return best_track
+        return best_idx
 
-    def _estimate_session_profile(self, recent_history):
-        tracks = np.array([track for track, _ in recent_history], dtype=np.int32)
-        times = np.array([float(t) for _, t in recent_history], dtype=np.float32)
+    def _estimate_session_profile(self, session_history):
+        tracks = np.asarray([int(track) for track, _ in session_history], dtype=np.int32)
+        times = np.asarray([float(t) for _, t in session_history], dtype=np.float32)
         X = self.item_vectors_unit[tracks]
 
-        # A monotonic surrogate for hidden preference score in the simulator.
-        y = np.clip(2.0 * times - 1.0, -1.0, 1.0)
+        # Monotonic surrogate for the simulator's hidden score.
+        y = np.log(np.clip(times, 1e-3, 1.0 - 1e-3) / np.clip(1.0 - times, 1e-3, 1.0))
         sample_weights = np.maximum(times, self.min_weight)
 
-        prior = X[0]
+        prior = X[int(np.argmax(sample_weights))]
         dim = X.shape[1]
-        reg = 0.6
+        reg = 0.55
         A = reg * np.eye(dim, dtype=np.float32)
         b = reg * prior.astype(np.float32)
         for x, target, weight in zip(X, y, sample_weights):
@@ -146,19 +220,84 @@ class SessionSemanticRecommender(Recommender):
             b += weight * target * x
         profile = np.linalg.solve(A, b)
 
-        # Blend the fitted profile with the simple positive-preference centroid.
-        positive = np.maximum(times, 0.05)
-        centroid = (X * positive[:, None]).sum(axis=0) / positive.sum()
-        return 0.65 * profile + 0.35 * centroid
+        positive_centroid = self._weighted_centroid(session_history, decay=0.97)
+        if positive_centroid is None:
+            return self._normalize(profile)
+        return self._normalize(0.72 * profile + 0.28 * positive_centroid)
 
-    def _load_i2i_candidates(self, history, seen_tracks):
-        if self.i2i_redis is None:
+    def _select_user_prototype(self, user, session_profile, positive_history):
+        prototypes = self.user_prototypes.get(user)
+        if not prototypes:
+            return None
+
+        if session_profile is not None:
+            anchor = session_profile
+        else:
+            anchor = self._weighted_centroid(positive_history, decay=0.98)
+        if anchor is None:
+            return None
+
+        sims = np.asarray([float(np.dot(proto, anchor)) for proto in prototypes], dtype=np.float32)
+        best_idx = int(np.argmax(sims))
+        if float(sims[best_idx]) < 0.18:
+            return None
+        return prototypes[best_idx]
+
+    def _negative_profile(self, session_history):
+        negatives = [
+            (track, listened_time)
+            for track, listened_time in session_history
+            if listened_time < self.skip_time_threshold
+        ]
+        if not negatives:
+            return None
+
+        vectors = []
+        weights = []
+        for idx, (track, listened_time) in enumerate(reversed(negatives[-4:])):
+            vectors.append(self.item_vectors_unit[int(track)])
+            weights.append(max(1.0 - float(listened_time), self.min_weight) * (0.9 ** idx))
+        if not weights or sum(weights) <= 0:
+            return None
+        centroid = np.average(np.asarray(vectors, dtype=np.float32), axis=0, weights=np.asarray(weights, dtype=np.float32))
+        return self._normalize(centroid)
+
+    def _combine_profiles(self, session_profile, prototype_prior, hstu_prior):
+        parts = []
+        if session_profile is not None:
+            parts.append(self.session_profile_weight * session_profile)
+        if prototype_prior is not None:
+            parts.append(self.prototype_weight * prototype_prior)
+        if hstu_prior is not None:
+            parts.append(self.hstu_prior_weight * hstu_prior)
+        if not parts:
+            return None
+        return self._normalize(np.sum(parts, axis=0))
+
+    def _weighted_centroid(self, history, decay):
+        if not history:
+            return None
+
+        vectors = []
+        weights = []
+        for idx, (track, listened_time) in enumerate(reversed(history[-10:])):
+            weight = max(float(listened_time), self.min_weight) * (decay ** idx)
+            vectors.append(self.item_vectors_unit[int(track)])
+            weights.append(weight)
+
+        if not weights or sum(weights) <= 0:
+            return None
+        centroid = np.average(np.asarray(vectors, dtype=np.float32), axis=0, weights=np.asarray(weights, dtype=np.float32))
+        return self._normalize(centroid)
+
+    def _load_i2i_candidates(self, history, seen_tracks, redis):
+        if redis is None:
             return []
 
         ordered = []
         added = set()
-        for anchor_track, _ in history[: self.max_i2i_anchors]:
-            data = self.i2i_redis.get(anchor_track)
+        for anchor_track, _ in reversed(history[-self.max_i2i_anchors :]):
+            data = redis.get(int(anchor_track))
             if data is None:
                 continue
             for candidate in self.catalog.from_bytes(data):
@@ -167,7 +306,39 @@ class SessionSemanticRecommender(Recommender):
                     continue
                 ordered.append(candidate)
                 added.add(candidate)
+                if len(ordered) >= 32:
+                    return ordered
         return ordered
+
+    def _load_user_candidates(self, redis, user, seen_tracks):
+        if redis is None:
+            return []
+        data = redis.get(user)
+        if data is None:
+            return []
+
+        ordered = []
+        for candidate in self.catalog.from_bytes(data):
+            candidate = int(candidate)
+            if candidate in seen_tracks:
+                continue
+            ordered.append(candidate)
+            if len(ordered) >= 16:
+                break
+        return ordered
+
+    def _prior_from_candidates(self, candidates):
+        if not candidates:
+            return None
+        vectors = self.item_vectors_unit[np.asarray(candidates[:8], dtype=np.int32)]
+        weights = np.asarray([1.0 / (rank + 1) for rank in range(len(vectors))], dtype=np.float32)
+        centroid = np.average(vectors, axis=0, weights=weights)
+        return self._normalize(centroid)
+
+    def _merge_bonus(self, source_bonus, candidates, base_bonus):
+        size = max(len(candidates), 1)
+        for rank, track in enumerate(candidates):
+            source_bonus[track] = source_bonus.get(track, 0.0) + base_bonus * (size - rank) / size
 
     def _load_user_history(self, user: int):
         raw_entries = self.listen_history_redis.lrange(f"user:{user}:listens", 0, -1)
@@ -178,3 +349,7 @@ class SessionSemanticRecommender(Recommender):
             entry = json.loads(raw)
             history.append((int(entry["track"]), float(entry["time"])))
         return history
+
+    def _normalize(self, vector):
+        norm = np.linalg.norm(vector) + 1e-8
+        return vector / norm
