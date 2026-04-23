@@ -27,6 +27,8 @@ class SessionSemanticRecommender(Recommender):
         negative_penalty=0.08,
         max_user_prototypes=6,
         prototype_match_threshold=0.58,
+        max_semantic_anchors=4,
+        semantic_neighbors_per_anchor=96,
         i2i_bonus=0.07,
         lfm_bonus=0.0,
         hstu_bonus=0.0,
@@ -50,6 +52,8 @@ class SessionSemanticRecommender(Recommender):
         self.negative_penalty = negative_penalty
         self.max_user_prototypes = max_user_prototypes
         self.prototype_match_threshold = prototype_match_threshold
+        self.max_semantic_anchors = max_semantic_anchors
+        self.semantic_neighbors_per_anchor = semantic_neighbors_per_anchor
         self.i2i_bonus = i2i_bonus
         self.lfm_bonus = lfm_bonus
         self.hstu_bonus = hstu_bonus
@@ -58,6 +62,7 @@ class SessionSemanticRecommender(Recommender):
 
         data = np.load(Path(embeddings_path))
         self.item_vectors = np.ascontiguousarray(data["vectors"].astype(np.float32))
+        self.neighbors = np.ascontiguousarray(data["neighbors"].astype(np.int32))
         norms = np.linalg.norm(self.item_vectors, axis=1, keepdims=True) + 1e-8
         self.item_vectors_unit = self.item_vectors / norms
 
@@ -189,24 +194,9 @@ class SessionSemanticRecommender(Recommender):
                 user, prev_track, prev_track_time
             )
 
-        scores = self.item_vectors_unit @ profile
-        if negative_profile is not None:
-            scores -= self.negative_penalty * (
-                self.item_vectors_unit @ negative_profile
-            )
-
-        if seen_tracks:
-            seen_idx = np.fromiter(sorted(seen_tracks), dtype=np.int32)
-            scores[seen_idx] = -np.inf
-
-        if self.artist_penalty > 0.0:
-            session_artists = np.array(
-                [self.track_artist_ids[int(track)] for track, _ in session_history],
-                dtype=np.int32,
-            )
-            artist_counts = np.bincount(session_artists, minlength=self.n_artists)
-            scores -= self.artist_penalty * artist_counts[self.track_artist_ids]
-
+        semantic_candidates = self._load_semantic_candidates(
+            positive_history, seen_tracks
+        )
         source_bonus = {}
         sas_candidates = self._load_i2i_candidates(
             positive_history, seen_tracks, self.i2i_redis
@@ -217,12 +207,40 @@ class SessionSemanticRecommender(Recommender):
         self._merge_bonus(source_bonus, sas_candidates, self.i2i_bonus)
         self._merge_bonus(source_bonus, lfm_candidates, self.lfm_bonus)
         self._merge_bonus(source_bonus, hstu_candidates, self.hstu_bonus)
+
+        candidate_pool = self._merge_candidates(
+            semantic_candidates,
+            sas_candidates,
+            lfm_candidates,
+            hstu_candidates,
+        )
+        if not candidate_pool:
+            return self.fallback_recommender.recommend_next(
+                user, prev_track, prev_track_time
+            )
+
+        candidate_pool = np.asarray(candidate_pool, dtype=np.int32)
+        candidate_vectors = self.item_vectors_unit[candidate_pool]
+        scores = candidate_vectors @ profile
+        if negative_profile is not None:
+            scores -= self.negative_penalty * (candidate_vectors @ negative_profile)
+
+        if self.artist_penalty > 0.0:
+            session_artists = np.array(
+                [self.track_artist_ids[int(track)] for track, _ in session_history],
+                dtype=np.int32,
+            )
+            artist_counts = np.bincount(session_artists, minlength=self.n_artists)
+            scores -= self.artist_penalty * artist_counts[
+                self.track_artist_ids[candidate_pool]
+            ]
+
         if source_bonus:
-            idx = np.fromiter(source_bonus.keys(), dtype=np.int32)
-            bonus = np.fromiter(source_bonus.values(), dtype=np.float32)
-            scores[idx] += bonus
+            for idx, track in enumerate(candidate_pool):
+                scores[idx] += source_bonus.get(int(track), 0.0)
 
         best_idx = int(np.argmax(scores))
+        recommendation = int(candidate_pool[best_idx])
         top_score = float(scores[best_idx])
         finite_scores = scores[np.isfinite(scores)]
         if finite_scores.size > 1:
@@ -237,7 +255,7 @@ class SessionSemanticRecommender(Recommender):
         if fallback_track is not None and margin < self.min_margin:
             return int(fallback_track)
 
-        return best_idx
+        return recommendation
 
     def _estimate_session_profile(self, session_history):
         tracks = np.asarray([int(track) for track, _ in session_history], dtype=np.int32)
@@ -362,6 +380,32 @@ class SessionSemanticRecommender(Recommender):
                 added.add(candidate)
                 if len(ordered) >= 32:
                     return ordered
+        return ordered
+
+    def _load_semantic_candidates(self, history, seen_tracks):
+        ordered = []
+        added = set()
+        for anchor_track, _ in reversed(history[-self.max_semantic_anchors:]):
+            for candidate in self.neighbors[int(anchor_track)][
+                : self.semantic_neighbors_per_anchor
+            ]:
+                candidate = int(candidate)
+                if candidate in seen_tracks or candidate in added:
+                    continue
+                ordered.append(candidate)
+                added.add(candidate)
+        return ordered
+
+    def _merge_candidates(self, *candidate_lists):
+        ordered = []
+        added = set()
+        for candidates in candidate_lists:
+            for track in candidates:
+                track = int(track)
+                if track in added:
+                    continue
+                ordered.append(track)
+                added.add(track)
         return ordered
 
     def _load_user_candidates(self, redis, user, seen_tracks):
