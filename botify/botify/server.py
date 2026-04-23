@@ -12,6 +12,7 @@ from gevent.pywsgi import WSGIServer
 
 from botify.data import DataLogger, Datum
 from botify.experiment import Experiments, Treatment
+from botify.recommenders.diverse_i2i import DiverseI2I
 from botify.recommenders.i2i import I2IRecommender
 from botify.recommenders.random import Random
 from botify.recommenders.indexed import Indexed
@@ -32,6 +33,7 @@ recommendations_lfm_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_LFM"
 recommendations_contextual_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_SASREC")
 
 recommendations_hstu_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_HSTU")
+recommendations_diverse_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_DIVERSE")
 
 data_logger = DataLogger(app)
 atexit.register(data_logger.close)
@@ -67,11 +69,26 @@ catalog.upload_recommendations(
     "RECOMMENDATIONS_HSTU_FILE_PATH"
 )
 
+catalog.upload_recommendations(
+    recommendations_diverse_redis.connection,
+    "RECOMMENDATIONS_DIVERSE_FILE_PATH",
+    key_object="item_id",
+    key_recommendations="recommendations",
+)
+
+track_artists = {track.track: track.artist for track in catalog.tracks}
 
 sasrec_i2i_recommender = I2IRecommender(
     listen_history_redis.connection,
     recommendations_contextual_redis.connection,
     random_recommender,
+)
+
+diverse_recommender = DiverseI2I(
+    listen_history_redis.connection,
+    recommendations_diverse_redis.connection,
+    track_artists,
+    sasrec_i2i_recommender,
 )
 
 parser = reqparse.RequestParser()
@@ -112,12 +129,12 @@ class NextTrack(Resource):
         args = parser.parse_args()
         persist_user_listen_history(user, args.track, args.time)
 
-        treatment = Experiments.HSTU.assign(user)
+        treatment = Experiments.DIVERSE.assign(user)
 
         if treatment == Treatment.C:
             recommender = sasrec_i2i_recommender
         elif treatment == Treatment.T1:
-            recommender = Indexed(recommendations_hstu_redis.connection, catalog, random_recommender)
+            recommender = diverse_recommender
         else:
             recommender = random_recommender
 
