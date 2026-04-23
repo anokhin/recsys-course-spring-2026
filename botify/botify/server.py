@@ -14,7 +14,6 @@ from botify.data import DataLogger, Datum
 from botify.experiment import Experiments, Treatment
 from botify.recommenders.i2i import I2IRecommender
 from botify.recommenders.random import Random
-from botify.recommenders.indexed import Indexed
 from botify.recommenders.sticky_artist import StickyArtist
 from botify.track import Catalog
 
@@ -30,6 +29,7 @@ artists_redis = Redis(app, config_prefix="REDIS_ARTIST")
 listen_history_redis = Redis(app, config_prefix="REDIS_LISTEN_HISTORY")
 recommendations_lfm_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_LFM")
 recommendations_contextual_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_SASREC")
+recommendations_two_tower_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_TWO_TOWER")
 
 recommendations_hstu_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_HSTU")
 
@@ -63,6 +63,13 @@ catalog.upload_recommendations(
 )
 
 catalog.upload_recommendations(
+    recommendations_two_tower_redis.connection,
+    "RECOMMENDATIONS_TWO_TOWER_FILE_PATH",
+    key_object="item_id",
+    key_recommendations="recommendations",
+)
+
+catalog.upload_recommendations(
     recommendations_hstu_redis.connection,
     "RECOMMENDATIONS_HSTU_FILE_PATH"
 )
@@ -71,6 +78,12 @@ catalog.upload_recommendations(
 sasrec_i2i_recommender = I2IRecommender(
     listen_history_redis.connection,
     recommendations_contextual_redis.connection,
+    random_recommender,
+)
+
+two_tower_recommender = I2IRecommender(
+    listen_history_redis.connection,
+    recommendations_two_tower_redis.connection,
     random_recommender,
 )
 
@@ -112,12 +125,12 @@ class NextTrack(Resource):
         args = parser.parse_args()
         persist_user_listen_history(user, args.track, args.time)
 
-        treatment = Experiments.HSTU.assign(user)
+        treatment = Experiments.TWO_TOWER.assign(user)
 
         if treatment == Treatment.C:
             recommender = sasrec_i2i_recommender
         elif treatment == Treatment.T1:
-            recommender = Indexed(recommendations_hstu_redis.connection, catalog, random_recommender)
+            recommender = two_tower_recommender
         else:
             recommender = random_recommender
 
