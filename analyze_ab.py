@@ -85,13 +85,34 @@ def build_user_level_data(df: pd.DataFrame, experiment: str) -> pd.DataFrame:
 
 
 def _dof(n0, n1, s2_0, s2_1):
+    if n0 <= 1 or n1 <= 1:
+        return np.inf
     num = (s2_0 / n0 + s2_1 / n1) ** 2
     den = s2_0 ** 2 / n0 ** 2 / (n0 - 1) + s2_1 ** 2 / n1 ** 2 / (n1 - 1)
+    if den <= 0 or not np.isfinite(num) or not np.isfinite(den):
+        return np.inf
     return num / den
 
 
 def _ci(n0, n1, s2_0, s2_1, alpha=0.05):
-    return ss.t.ppf(1 - alpha / 2, _dof(n0, n1, s2_0, s2_1)) * np.sqrt(s2_0 / n0 + s2_1 / n1)
+    if not np.isfinite(s2_0):
+        s2_0 = 0.0
+    if not np.isfinite(s2_1):
+        s2_1 = 0.0
+
+    scale = s2_0 / n0 + s2_1 / n1
+    if scale <= 0 or not np.isfinite(scale):
+        return 0.0
+
+    dof = _dof(n0, n1, s2_0, s2_1)
+    if dof == np.inf:
+        critical = ss.norm.ppf(1 - alpha / 2)
+    else:
+        critical = ss.t.ppf(1 - alpha / 2, dof)
+
+    if not np.isfinite(critical):
+        return 0.0
+    return float(critical * np.sqrt(scale))
 
 
 def compute_effects(user_metrics: pd.DataFrame) -> list:
@@ -109,14 +130,17 @@ def compute_effects(user_metrics: pd.DataFrame) -> list:
                 ctrl[metric]["count"], row[metric]["count"],
                 ctrl[metric]["var"], row[metric]["var"],
             )
+            effect_pct = float(effect / c_mean * 100) if c_mean else 0.0
+            lower_pct = float((effect - conf_int) / c_mean * 100) if c_mean else 0.0
+            upper_pct = float((effect + conf_int) / c_mean * 100) if c_mean else 0.0
             effects.append({
                 "treatment": treatment,
                 "metric": metric,
                 "control_mean": round(float(c_mean), 4),
                 "treatment_mean": round(float(t_mean), 4),
-                "effect_pct": round(float(effect / c_mean * 100), 2) if c_mean else 0.0,
-                "lower_pct": round(float((effect - conf_int) / c_mean * 100), 2) if c_mean else 0.0,
-                "upper_pct": round(float((effect + conf_int) / c_mean * 100), 2) if c_mean else 0.0,
+                "effect_pct": round(effect_pct, 2) if np.isfinite(effect_pct) else 0.0,
+                "lower_pct": round(lower_pct, 2) if np.isfinite(lower_pct) else 0.0,
+                "upper_pct": round(upper_pct, 2) if np.isfinite(upper_pct) else 0.0,
                 "significant": bool((effect + conf_int) * (effect - conf_int) > 0),
             })
     return effects
@@ -146,7 +170,7 @@ def main():
     out = Path(args.output)
     out.parent.mkdir(parents=True, exist_ok=True)
     with open(out, "w") as f:
-        json.dump({"all_effects": effects}, f, indent=2, ensure_ascii=False)
+        json.dump({"all_effects": effects}, f, indent=2, ensure_ascii=False, allow_nan=False)
     print(f"\n💾 {out}")
 
 
