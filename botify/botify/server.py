@@ -74,6 +74,7 @@ sasrec_i2i_recommender = I2IRecommender(
     random_recommender,
 )
 hstu_recommender = Indexed(
+    listen_history_redis.connection,
     recommendations_hstu_redis.connection,
     catalog,
     random_recommender,
