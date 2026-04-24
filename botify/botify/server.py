@@ -14,6 +14,7 @@ from botify.data import DataLogger, Datum
 from botify.experiment import Experiments, Treatment
 from botify.recommenders.i2i import I2IRecommender
 from botify.recommenders.random import Random
+from botify.recommenders.indexed import Indexed
 from botify.recommenders.sticky_artist import StickyArtist
 from botify.recommenders.ml_hybrid import MLHybridRecommender
 from botify.track import Catalog
@@ -76,8 +77,9 @@ sasrec_i2i_recommender = I2IRecommender(
 
 ml_hybrid_recommender = MLHybridRecommender(
     listen_history_redis.connection,
-    recommendations_hstu_redis.connection,
+    recommendations_contextual_redis.connection,
     recommendations_lfm_redis.connection,
+    recommendations_hstu_redis.connection,
     random_recommender,
     app.config["TRACKS_CATALOG"],
 )
