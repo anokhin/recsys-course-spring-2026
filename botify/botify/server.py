@@ -73,6 +73,11 @@ sasrec_i2i_recommender = I2IRecommender(
     recommendations_contextual_redis.connection,
     random_recommender,
 )
+hstu_recommender = Indexed(
+    recommendations_hstu_redis.connection,
+    catalog,
+    random_recommender,
+)
 
 parser = reqparse.RequestParser()
 parser.add_argument("track", type=int, location="json", required=True)
@@ -117,7 +122,7 @@ class NextTrack(Resource):
         if treatment == Treatment.C:
             recommender = sasrec_i2i_recommender
         elif treatment == Treatment.T1:
-            recommender = Indexed(recommendations_hstu_redis.connection, catalog, random_recommender)
+            recommender = hstu_recommender
         else:
             recommender = random_recommender
 
