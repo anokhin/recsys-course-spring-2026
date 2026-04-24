@@ -24,7 +24,7 @@ class I2IRecommender(Recommender):
             anchors = list(track_time.keys())
             weights = [track_time[track] for track in anchors]
 
-            while anchors:
+            while anchors and sum(weights) > 0:
                 anchor = random.choices(anchors, weights=weights, k=1)[0]
                 candidate = self._recommend_from_anchor(anchor, seen_tracks)
                 if candidate is not None:

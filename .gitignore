@@ -1,10 +1,12 @@
 .idea/
+.venv/
 sim/out/
 __pycache__
 .ipynb_checkpoints
 botify/log/*
 botify/data/*.json
 !botify/data/tracks.json
+botify/data/content_i2i.jsonl
 .DS_Store
 
 # LaTeX

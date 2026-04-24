@@ -12,10 +12,9 @@ from gevent.pywsgi import WSGIServer
 
 from botify.data import DataLogger, Datum
 from botify.experiment import Experiments, Treatment
+from botify.recommenders.diverse_i2i import DiverseI2IRecommender
 from botify.recommenders.i2i import I2IRecommender
 from botify.recommenders.random import Random
-from botify.recommenders.indexed import Indexed
-from botify.recommenders.sticky_artist import StickyArtist
 from botify.track import Catalog
 
 root = logging.getLogger()
@@ -26,52 +25,43 @@ app.config.from_file("config.json", load=json.load)
 api = Api(app)
 
 tracks_redis = Redis(app, config_prefix="REDIS_TRACKS")
-artists_redis = Redis(app, config_prefix="REDIS_ARTIST")
 listen_history_redis = Redis(app, config_prefix="REDIS_LISTEN_HISTORY")
-recommendations_lfm_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_LFM")
-recommendations_contextual_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_SASREC")
-
-recommendations_hstu_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_HSTU")
+recommendations_sasrec_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_SASREC")
+recommendations_content_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_CONTENT")
 
 data_logger = DataLogger(app)
 atexit.register(data_logger.close)
 
 catalog = Catalog(app).load(app.config["TRACKS_CATALOG"])
 catalog.upload_tracks(tracks_redis.connection)
-catalog.upload_artists(artists_redis.connection)
 
 random_recommender = Random(tracks_redis.connection)
-sticky_artist_recommender = StickyArtist(tracks_redis, artists_redis, catalog)
 
 catalog.upload_recommendations(
-    recommendations_lfm_redis.connection,
-    "RECOMMENDATIONS_LFM_FILE_PATH",
-    key_object="item_id",
-    key_recommendations="recommendations",
-)
-lightfm_i2i_recommender = I2IRecommender(
-    listen_history_redis.connection,
-    recommendations_lfm_redis.connection,
-    random_recommender,
-)
-
-catalog.upload_recommendations(
-    recommendations_contextual_redis.connection,
+    recommendations_sasrec_redis.connection,
     "RECOMMENDATIONS_SASREC_FILE_PATH",
     key_object="item_id",
     key_recommendations="recommendations",
 )
 
-catalog.upload_recommendations(
-    recommendations_hstu_redis.connection,
-    "RECOMMENDATIONS_HSTU_FILE_PATH"
-)
-
-
 sasrec_i2i_recommender = I2IRecommender(
     listen_history_redis.connection,
-    recommendations_contextual_redis.connection,
+    recommendations_sasrec_redis.connection,
     random_recommender,
+)
+
+catalog.upload_recommendations(
+    recommendations_content_redis.connection,
+    "RECOMMENDATIONS_CONTENT_FILE_PATH",
+    key_object="item_id",
+    key_recommendations="recommendations",
+)
+
+content_i2i_recommender = DiverseI2IRecommender(
+    listen_history_redis.connection,
+    recommendations_content_redis.connection,
+    random_recommender,
+    catalog,
 )
 
 parser = reqparse.RequestParser()
@@ -117,7 +107,7 @@ class NextTrack(Resource):
         if treatment == Treatment.C:
             recommender = sasrec_i2i_recommender
         elif treatment == Treatment.T1:
-            recommender = Indexed(recommendations_hstu_redis.connection, catalog, random_recommender)
+            recommender = content_i2i_recommender
         else:
             recommender = random_recommender
 

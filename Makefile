@@ -13,6 +13,7 @@ setup:
 	$(PIP) install --upgrade pip --timeout 120 -q
 	$(PIP) install -r sim/requirements.txt --timeout 120 -q
 	$(PIP) install -r botify/requirements.txt --timeout 120 -q
+	$(PYTHON) script/build_content_i2i.py
 	cd botify && docker compose down -v --remove-orphans 2>/dev/null || true
 	cd botify && docker compose up -d --build --force-recreate --scale recommender=2
 	sleep 20

@@ -143,10 +143,28 @@ def main():
         .to_string(index=False)
     )
 
+    primary = next(
+        (e for e in effects if e["metric"] == "mean_time_per_session"),
+        None,
+    )
+    beat_control = bool(primary and primary["effect_pct"] > 0)
+    lift_pct = float(primary["effect_pct"]) if primary else None
+    significant = bool(primary and primary["significant"]) if primary else False
+
     out = Path(args.output)
     out.parent.mkdir(parents=True, exist_ok=True)
     with open(out, "w") as f:
-        json.dump({"all_effects": effects}, f, indent=2, ensure_ascii=False)
+        json.dump(
+            {
+                "all_effects": effects,
+                "beat_control": beat_control,
+                "lift_pct": lift_pct,
+                "significant": significant,
+            },
+            f,
+            indent=2,
+            ensure_ascii=False,
+        )
     print(f"\n💾 {out}")
 
 
