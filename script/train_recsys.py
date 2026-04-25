@@ -218,7 +218,12 @@ def _cli():
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--seed", type=int, default=31312)
     parser.add_argument("--experiment", default="HSTU")
-    parser.add_argument("--control-label", default="C")
+    parser.add_argument(
+        "--control-label",
+        default=None,
+        help="If set, keep only rows where experiments[<experiment>] == this label. "
+             "Default: None (use all rows regardless of arm).",
+    )
     args = parser.parse_args()
 
     from script.load_logs import load_control_arm

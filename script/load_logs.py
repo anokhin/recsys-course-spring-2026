@@ -12,9 +12,10 @@ import pandas as pd
 def load_control_arm(
     data_dir: str | Path,
     experiment_name: str = "HSTU",
-    control_label: str = "C",
+    control_label: str | None = "C",
     aggregate: bool = False,
 ) -> pd.DataFrame:
+    """Load logs. If control_label is None, no experiment filtering is applied."""
     data_dir = Path(data_dir)
     paths: List[str] = sorted(
         glob.glob(str(data_dir / "**" / "data.json"), recursive=True)
@@ -27,9 +28,10 @@ def load_control_arm(
         with open(p) as f:
             for line in f:
                 row = json.loads(line)
-                exp = row.get("experiments") or {}
-                if exp.get(experiment_name) != control_label:
-                    continue
+                if control_label is not None:
+                    exp = row.get("experiments") or {}
+                    if exp.get(experiment_name) != control_label:
+                        continue
                 user = row.get("user")
                 track = row.get("track")
                 listen_time = row.get("time")
