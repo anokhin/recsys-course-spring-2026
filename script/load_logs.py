@@ -9,6 +9,34 @@ from typing import List
 import pandas as pd
 
 
+def load_raw_events(data_dir: str | Path) -> pd.DataFrame:
+    """Load every event row with its timestamp and message kind, no filtering."""
+    data_dir = Path(data_dir)
+    paths: List[str] = sorted(
+        glob.glob(str(data_dir / "**" / "data.json"), recursive=True)
+    )
+    if not paths:
+        raise FileNotFoundError(f"No data.json under {data_dir}")
+
+    rows = []
+    for p in paths:
+        with open(p) as f:
+            for line in f:
+                row = json.loads(line)
+                user = row.get("user")
+                track = row.get("track")
+                listen_time = row.get("time")
+                ts = row.get("timestamp")
+                msg = row.get("message")
+                if user is None or track is None or listen_time is None or ts is None:
+                    continue
+                rows.append((int(user), int(track), float(listen_time), int(ts), str(msg)))
+
+    return pd.DataFrame(
+        rows, columns=["user", "track", "listen_time", "timestamp", "message"]
+    )
+
+
 def load_control_arm(
     data_dir: str | Path,
     experiment_name: str = "HSTU",

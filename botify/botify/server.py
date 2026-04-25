@@ -33,6 +33,7 @@ recommendations_contextual_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIO
 
 recommendations_hstu_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_HSTU")
 recommendations_our_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_OUR")
+recommendations_our_i2i_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_OUR_I2I")
 
 data_logger = DataLogger(app)
 atexit.register(data_logger.close)
@@ -73,6 +74,13 @@ catalog.upload_recommendations(
     "RECOMMENDATIONS_OUR_FILE_PATH"
 )
 
+catalog.upload_recommendations(
+    recommendations_our_i2i_redis.connection,
+    "RECOMMENDATIONS_OUR_I2I_FILE_PATH",
+    key_object="item_id",
+    key_recommendations="recommendations",
+)
+
 
 sasrec_i2i_recommender = I2IRecommender(
     listen_history_redis.connection,
@@ -80,10 +88,10 @@ sasrec_i2i_recommender = I2IRecommender(
     random_recommender,
 )
 
-our_recommender = Indexed(
-    recommendations_our_redis.connection,
-    catalog,
-    sasrec_i2i_recommender,
+our_i2i_recommender = I2IRecommender(
+    listen_history_redis.connection,
+    recommendations_our_i2i_redis.connection,
+    random_recommender,
 )
 
 parser = reqparse.RequestParser()
@@ -129,7 +137,7 @@ class NextTrack(Resource):
         if treatment == Treatment.C:
             recommender = sasrec_i2i_recommender
         elif treatment == Treatment.T1:
-            recommender = our_recommender
+            recommender = our_i2i_recommender
         else:
             recommender = random_recommender
 
