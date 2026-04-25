@@ -1,3 +1,30 @@
-## Homework 2 Report
+# Homework 2 Report — Hybrid Content + Collaborative i2i
 
-dragons be here
+## Abstract
+
+В качестве улучшения сервиса предлагается **гибридный item-to-item рекомендер**, который объединяет три источника сигнала на каждый якорный трек: уже имеющиеся `SasRec-i2i`, `LightFM-i2i` и **content-i2i**, построенный по эмбеддингам текстовых описаний треков (title + artist + genres + mood + summary), полученным от pretrained sentence-transformer (`all-MiniLM-L6-v2`). Кандидаты от трёх источников ранжируются обучаемым логистическим блендером, а финальный список из 10 треков формируется жадной **artist-diverse** выборкой — не более одного трека на артиста. Это напрямую снижает мультипликативный `artist_discount = γ^artist_counter` симулятора и удлиняет сессию. Контроль — `SasRec-I2I`, тритмент — `Hybrid-I2I`, расщепление 50/50 по `mmh3(user_id)` под именем эксперимента `HYBRID`.
+
+## Детали реализации
+
+Оффлайн в `train/build_hybrid_i2i.py` (1) собираем текст по каждому треку из `botify/data/tracks.json` и эмбеддим его sentence-transformer-ом, нормализуя L2; (2) для каждого трека выбираем top-30 ближайших по cosine — это content-i2i; (3) обучаем logistic-regression блендер на слабой супервизии: позитивы — взаимные SasRec-соседи (трек *b* в top-5 SasRec[*a*] **и** *a* в top-5 SasRec[*b*]), негативы — случайные пары; фичи — reciprocal-rank в каждом из трёх источников, бинарные индикаторы попадания, content-similarity, same-artist, Jaccard по жанрам артиста, same-mood, близость по году; (4) для каждого якоря объединяем top-30 из трёх источников, скорим блендером, и жадно отбираем top-10 с ограничением «≤1 трек на артиста». Артефакт `botify/data/hybrid_i2i.jsonl` коммитится в репозиторий; в CI обучение **не** запускается — botify читает готовый файл и обслуживает его через существующий `I2IRecommender` (фолбэк на SasRec-i2i, если для якоря нет данных). Зерно `SEED=31312` фиксируется во всех источниках случайности, поэтому артефакт детерминирован, а сам прогон симулятора воспроизводим. Средняя уникальность артистов в топ-10: SasRec **6.64**, Hybrid **10.0** — именно этот сдвиг обходит штраф `γ^artist_counter` пользовательской модели и даёт прирост.
+
+```
+tracks.json ─┐
+sasrec_i2i ──┼──► train/build_hybrid_i2i.py ──► hybrid_i2i.jsonl ──► Redis ──► I2IRecommender
+lightfm_i2i ─┘     (sentence-transformer +                          (committed)        │
+                    LogReg blender +                                                   ▼
+                    artist-diverse pick)                                  Treatment T1 в HYBRID
+                                                                          (контроль = SasRec-I2I)
+```
+
+## Результаты A/B
+
+Эксперимент `HYBRID` (HALF_HALF), `SEED=31312`. Smoke-прогон на **3 000** эпизодов (полный прогон в CI — 30 000); таблица ниже — `analyze_ab.py` поверх локальных логов. Метрика принятия решения — `mean_time_per_session`: **+21.48%** (95% CI [+17.01%, +25.95%]), статистически значимо. Прирост сопровождается ростом `mean_tracks_per_session` на 12.79% и общего `time` на 21.75% — пользователи слушают и больше треков, и каждый из них дольше.
+
+| metric | control_mean | treatment_mean | effect_pct | lower_pct | upper_pct | significant |
+|---|---:|---:|---:|---:|---:|:---:|
+| **mean_time_per_session** | 7.7659 | 9.4339 | **+21.48%** | +17.01 | +25.95 | ✅ |
+| mean_tracks_per_session | 12.8269 | 14.4671 | +12.79% | +9.78 | +15.79 | ✅ |
+| time | 8.9028 | 10.8396 | +21.75% | +16.66 | +26.85 | ✅ |
+| sessions | 1.1557 | 1.1779 | +1.92% | -0.89 | +4.73 | — |
+| mean_request_latency | 1.2450 | 0.8687 | -30.22% | -123.2 | +62.76 | — |
