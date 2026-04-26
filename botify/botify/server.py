@@ -15,7 +15,7 @@ from botify.experiment import Experiments, Treatment
 from botify.recommenders.i2i import I2IRecommender
 from botify.recommenders.random import Random
 from botify.recommenders.sticky_artist import StickyArtist
-from botify.recommenders.user_top import UserTop
+from botify.recommenders.users import UserTop
 from botify.track import Catalog
 
 root = logging.getLogger()
