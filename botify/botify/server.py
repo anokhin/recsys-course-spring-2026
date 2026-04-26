@@ -16,6 +16,7 @@ from botify.recommenders.i2i import I2IRecommender
 from botify.recommenders.random import Random
 from botify.recommenders.indexed import Indexed
 from botify.recommenders.sticky_artist import StickyArtist
+from botify.recommenders.multi_source_ranker import MultiSourceRanker
 from botify.track import Catalog
 
 root = logging.getLogger()
@@ -37,9 +38,6 @@ recommendations_contextual_redis = Redis(
 
 recommendations_hstu_redis = Redis(
     app, config_prefix="REDIS_RECOMMENDATIONS_HSTU"
-)
-recommendations_content_redis = Redis(
-    app, config_prefix="REDIS_RECOMMENDATIONS_CONTENT"
 )
 
 data_logger = DataLogger(app)
@@ -75,13 +73,6 @@ catalog.upload_recommendations(
     recommendations_hstu_redis.connection, "RECOMMENDATIONS_HSTU_FILE_PATH"
 )
 
-catalog.upload_recommendations(
-    recommendations_content_redis.connection,
-    "RECOMMENDATIONS_CONTENT_FILE_PATH",
-    key_object="item_id",
-    key_recommendations="recommendations",
-)
-
 
 sasrec_i2i_recommender = I2IRecommender(
     listen_history_redis.connection,
@@ -89,10 +80,16 @@ sasrec_i2i_recommender = I2IRecommender(
     random_recommender,
 )
 
-content_i2i_recommender = I2IRecommender(
+# In-memory artist lookup: zero extra Redis calls per recommendation
+track_artist_map = {t.track: t.artist for t in catalog.tracks}
+
+multi_source_recommender = MultiSourceRanker(
     listen_history_redis.connection,
-    recommendations_content_redis.connection,
-    random_recommender,
+    recommendations_contextual_redis.connection,
+    recommendations_lfm_redis.connection,
+    recommendations_hstu_redis.connection,
+    track_artist_map,
+    sasrec_i2i_recommender,
 )
 
 parser = reqparse.RequestParser()
@@ -135,10 +132,10 @@ class NextTrack(Resource):
         args = parser.parse_args()
         persist_user_listen_history(user, args.track, args.time)
 
-        treatment = Experiments.CONTENT_I2I.assign(user)
+        treatment = Experiments.MULTI_I2I.assign(user)
 
         if treatment == Treatment.T1:
-            recommender = content_i2i_recommender
+            recommender = multi_source_recommender
         else:
             recommender = sasrec_i2i_recommender
 
