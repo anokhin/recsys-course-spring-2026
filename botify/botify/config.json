@@ -27,6 +27,7 @@
   "RECOMMENDATIONS_HSTU_FILE_PATH": "./data/hstu_recommendations.json",
 
   "TRACKS_CATALOG": "./data/tracks.json",
+  "ML_ARTIFACTS_DIR": "./data/ml",
   "DATA_LOG_FILE": "./log/data.json",
   "DATA_LOG_FILE_MAX_BYTES": 104857600,
   "DATA_LOG_FILE_BACKUP_COPIES": 10

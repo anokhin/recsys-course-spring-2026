@@ -1,4 +1,5 @@
 from enum import Enum
+from typing import List
 
 import mmh3
 
@@ -27,21 +28,15 @@ class Split(Enum):
 
 
 class Experiment:
-    """
-    Represents a single A/B experiment. Assigns
-    any user to one of the treatments based on
-    experiment name and user ID.
+    """Assigns a user to one of the treatment buckets of a single A/B test.
 
-    An example usage::
+    Example::
 
-        experiment = Experiments.AA
+        experiment = Experiments.HW2
         if experiment.assign(user) == Treatment.C:
-            # do control actions
             ...
         elif experiment.assign(user) == Treatment.T1:
-            # do treatment actions
             ...
-
     """
 
     def __init__(self, name: str, split: Split):
@@ -58,14 +53,13 @@ class Experiment:
 
 
 class Experiments:
-    """
-    A static container for all the existing experiments.
-    """
+    """A static container for all the existing experiments."""
 
     STICKY_ARTIST = Experiment("STICKY_ARTIST", Split.HALF_HALF)
     AA = Experiment("AA", Split.HALF_HALF)
     I2I = Experiment("I2I", Split.THREE_WAY)
     HSTU = Experiment("HSTU", Split.HALF_HALF)
+    HW2 = Experiment("HW2", Split.HALF_HALF)
 
-    def __init__(self):
-        self.experiments = [Experiments.HSTU]
+    def __init__(self) -> None:
+        self.experiments: List[Experiment] = [Experiments.HW2]
