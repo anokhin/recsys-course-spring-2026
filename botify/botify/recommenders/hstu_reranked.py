@@ -5,11 +5,6 @@ from .recommender import Recommender
 
 
 class HSTUReranked(Recommender):
-    """
-    Гибридный рекомендер: HSTU генерирует персонализированные кандидаты,
-    SasRec-I2I перераспределяет их по контексту текущей сессии.
-    """
-
     def __init__(self, listen_history_redis, hstu_redis, sasrec_redis, catalog, fallback):
         self.listen_history_redis = listen_history_redis
         self.hstu_redis = hstu_redis
@@ -33,7 +28,6 @@ class HSTUReranked(Recommender):
         for rank, track in enumerate(hstu_candidates):
             if track in seen_tracks:
                 continue
-            # SasRec-I2I даёт контекстуальную релевантность, HSTU — персонализацию
             score = (sasrec_scores.get(track, 0), n - rank)
             if score > best_score:
                 best_score = score
@@ -60,5 +54,4 @@ class HSTUReranked(Recommender):
         if data is None:
             return {}
         recommendations = pickle.loads(data)
-        # Чем выше ранг в SasRec-I2I, тем выше балл
         return {int(t): len(recommendations) - i for i, t in enumerate(recommendations)}
