@@ -1,3 +1,4 @@
+.venv/
 .idea/
 sim/out/
 __pycache__
@@ -5,6 +6,10 @@ __pycache__
 botify/log/*
 botify/data/*.json
 !botify/data/tracks.json
+results/
+sim/data/embeddings.npy
+sim/data/tracks.json
+sim/data/users.json
 .DS_Store
 
 # LaTeX

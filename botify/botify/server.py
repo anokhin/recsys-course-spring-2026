@@ -14,7 +14,6 @@ from botify.data import DataLogger, Datum
 from botify.experiment import Experiments, Treatment
 from botify.recommenders.i2i import I2IRecommender
 from botify.recommenders.random import Random
-from botify.recommenders.indexed import Indexed
 from botify.recommenders.sticky_artist import StickyArtist
 from botify.track import Catalog
 
@@ -31,7 +30,7 @@ listen_history_redis = Redis(app, config_prefix="REDIS_LISTEN_HISTORY")
 recommendations_lfm_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_LFM")
 recommendations_contextual_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_SASREC")
 
-recommendations_hstu_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_HSTU")
+recommendations_session2vec_i2i_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_SESSION2VEC_I2I")
 
 data_logger = DataLogger(app)
 atexit.register(data_logger.close)
@@ -63,14 +62,21 @@ catalog.upload_recommendations(
 )
 
 catalog.upload_recommendations(
-    recommendations_hstu_redis.connection,
-    "RECOMMENDATIONS_HSTU_FILE_PATH"
+    recommendations_session2vec_i2i_redis.connection,
+    "RECOMMENDATIONS_SESSION2VEC_I2I_FILE_PATH",
+    key_object="item_id",
+    key_recommendations="recommendations",
 )
 
 
 sasrec_i2i_recommender = I2IRecommender(
     listen_history_redis.connection,
     recommendations_contextual_redis.connection,
+    random_recommender,
+)
+session2vec_i2i_recommender = I2IRecommender(
+    listen_history_redis.connection,
+    recommendations_session2vec_i2i_redis.connection,
     random_recommender,
 )
 
@@ -117,7 +123,7 @@ class NextTrack(Resource):
         if treatment == Treatment.C:
             recommender = sasrec_i2i_recommender
         elif treatment == Treatment.T1:
-            recommender = Indexed(recommendations_hstu_redis.connection, catalog, random_recommender)
+            recommender = session2vec_i2i_recommender
         else:
             recommender = random_recommender
 
