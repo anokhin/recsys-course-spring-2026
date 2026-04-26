@@ -3,39 +3,41 @@ import glob
 import json
 from collections import namedtuple
 from pathlib import Path
+from typing import Optional
 
 import numpy as np
 import pandas as pd
 import scipy.stats as ss
 
 LABEL_CONTROL = "C"
+PRIMARY_METRIC = "mean_time_per_session"
 METRICS = [
     "time",
     "sessions",
     "mean_request_latency",
     "mean_tracks_per_session",
-    "mean_time_per_session",
+    PRIMARY_METRIC,
 ]
 
 
 def read_logs(data_dir: Path) -> pd.DataFrame:
     paths = (
-            glob.glob(str(data_dir / "*/data.json")) or
-            glob.glob(str(data_dir / "**/data.json"), recursive=True)
+        glob.glob(str(data_dir / "*/data.json")) or
+        glob.glob(str(data_dir / "**/data.json"), recursive=True)
     )
     if not paths:
-        raise FileNotFoundError(f"Не найдено data.json в {data_dir}")
+        raise FileNotFoundError(f"data.json not found under {data_dir}")
     return pd.concat([pd.read_json(p, lines=True) for p in sorted(paths)])
 
 
 def detect_experiment(df: pd.DataFrame) -> str:
-    keys = set(
+    keys = {
         k for e in df["experiments"]
         if isinstance(e, dict)
         for k in e
-    )
+    }
     exp = sorted(keys)[0]
-    print(f"  Эксперимент: '{exp}'")
+    print(f"  experiment: '{exp}'")
     return exp
 
 
@@ -91,11 +93,15 @@ def _dof(n0, n1, s2_0, s2_1):
 
 
 def _ci(n0, n1, s2_0, s2_1, alpha=0.05):
-    return ss.t.ppf(1 - alpha / 2, _dof(n0, n1, s2_0, s2_1)) * np.sqrt(s2_0 / n0 + s2_1 / n1)
+    return ss.t.ppf(1 - alpha / 2, _dof(n0, n1, s2_0, s2_1)) * np.sqrt(
+        s2_0 / n0 + s2_1 / n1
+    )
 
 
 def compute_effects(user_metrics: pd.DataFrame) -> list:
     agg = user_metrics.groupby("treatment")[METRICS].agg(["count", "mean", "var"])
+    if LABEL_CONTROL not in agg.index:
+        raise RuntimeError(f"Control treatment '{LABEL_CONTROL}' missing in logs")
     ctrl = agg.loc[LABEL_CONTROL]
     effects = []
     for treatment, row in agg.iterrows():
@@ -115,11 +121,33 @@ def compute_effects(user_metrics: pd.DataFrame) -> list:
                 "control_mean": round(float(c_mean), 4),
                 "treatment_mean": round(float(t_mean), 4),
                 "effect_pct": round(float(effect / c_mean * 100), 2) if c_mean else 0.0,
-                "lower_pct": round(float((effect - conf_int) / c_mean * 100), 2) if c_mean else 0.0,
-                "upper_pct": round(float((effect + conf_int) / c_mean * 100), 2) if c_mean else 0.0,
+                "lower_pct": round(float((effect - conf_int) / c_mean * 100), 2)
+                if c_mean else 0.0,
+                "upper_pct": round(float((effect + conf_int) / c_mean * 100), 2)
+                if c_mean else 0.0,
                 "significant": bool((effect + conf_int) * (effect - conf_int) > 0),
             })
     return effects
+
+
+def primary_summary(effects: list) -> dict:
+    primary: Optional[dict] = next(
+        (e for e in effects if e["metric"] == PRIMARY_METRIC), None
+    )
+    if primary is None:
+        return {
+            "beat_control": False,
+            "lift_pct": None,
+            "significant": False,
+            "primary_metric": PRIMARY_METRIC,
+        }
+    return {
+        "beat_control": bool(primary["effect_pct"] > 0),
+        "lift_pct": float(primary["effect_pct"]),
+        "significant": bool(primary["significant"]),
+        "primary_metric": PRIMARY_METRIC,
+        "treatment": primary["treatment"],
+    }
 
 
 def main():
@@ -143,11 +171,23 @@ def main():
         .to_string(index=False)
     )
 
+    summary = primary_summary(effects)
     out = Path(args.output)
     out.parent.mkdir(parents=True, exist_ok=True)
-    with open(out, "w") as f:
-        json.dump({"all_effects": effects}, f, indent=2, ensure_ascii=False)
-    print(f"\n💾 {out}")
+    payload = {
+        "experiment": experiment,
+        "all_effects": effects,
+        **summary,
+    }
+    with open(out, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2, ensure_ascii=False)
+    print(
+        f"\nprimary={summary['primary_metric']} "
+        f"lift_pct={summary['lift_pct']} "
+        f"beat_control={summary['beat_control']} "
+        f"significant={summary['significant']}"
+    )
+    print(f"saved -> {out}")
 
 
 if __name__ == "__main__":
