@@ -136,12 +136,25 @@ class NextTrack(Resource):
         else:
             recommender = Random(tracks_redis)
 
+        recommendation = None
         try:
             recommendation = recommender.recommend_next(user, args.track, args.time)
         except Exception:
-            app.logger.exception("recommender failed; falling back to sasrec")
-            recommendation = sasrec_i2i_recommender.recommend_next(user, args.track, args.time)
-        recommendation = int(recommendation) if recommendation is not None else int(args.track)
+            app.logger.exception("primary recommender failed")
+        if recommendation is None:
+            try:
+                recommendation = sasrec_i2i_recommender.recommend_next(user, args.track, args.time)
+            except Exception:
+                app.logger.exception("sasrec fallback failed")
+        if recommendation is None:
+            try:
+                recommendation = lightfm_i2i_recommender.recommend_next(user, args.track, args.time)
+            except Exception:
+                app.logger.exception("lightfm fallback failed")
+        try:
+            recommendation = int(recommendation) if recommendation is not None else int(args.track)
+        except (TypeError, ValueError):
+            recommendation = int(args.track)
 
         data_logger.log(
             "next",
