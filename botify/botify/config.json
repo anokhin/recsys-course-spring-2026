@@ -29,7 +29,7 @@
   "REDIS_RECOMMENDATIONS_USER_TOP_HOST": "redis",
   "REDIS_RECOMMENDATIONS_USER_TOP_PORT": 6379,
   "REDIS_RECOMMENDATIONS_USER_TOP_DB": 6,
-  "RECOMMENDATIONS_USER_TOP_FILE_PATH": "./data/user_top_recommendations.json",
+  "RECOMMENDATIONS_USER_TOP_FILE_PATH": "./data/users.json",
   "SESSION_VALUE_MODEL_FILE_PATH": "./data/session_value_model.json",
 
   "TRACKS_CATALOG": "./data/tracks.json",
