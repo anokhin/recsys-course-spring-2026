@@ -1,5 +1,6 @@
 import json
 import pickle
+import random
 
 from .recommender import Recommender
 
@@ -15,13 +16,12 @@ class HSTURecommender(Recommender):
         if data is None:
             return self.fallback_recommender.recommend_next(user, prev_track, prev_track_time)
 
-        ranked_tracks = pickle.loads(data)
+        tracks = pickle.loads(data)
         seen = self._load_seen_tracks(user)
+        candidates = [int(t) for t in tracks if int(t) not in seen]
 
-        for track in ranked_tracks:
-            candidate = int(track)
-            if candidate not in seen:
-                return candidate
+        if candidates:
+            return random.choice(candidates)
 
         return self.fallback_recommender.recommend_next(user, prev_track, prev_track_time)
 
