@@ -32,7 +32,11 @@ class AggregatedI2I(Recommender):
 
         candidate_scores = defaultdict(float)
 
-        for anchor, time_weight in track_time.items():
+        history_list = list(track_time.keys())
+        n = len(history_list)
+        for i, anchor in enumerate(history_list):
+            recency_weight = 2 ** (i / max(n - 1, 1))
+            weight = recency_weight * track_time[anchor]
             data = self.i2i_redis.get(anchor)
             if data is None:
                 continue
@@ -40,7 +44,7 @@ class AggregatedI2I(Recommender):
             for rank, track in enumerate(recommendations):
                 candidate = int(track)
                 if candidate not in seen_tracks:
-                    candidate_scores[candidate] += time_weight / (rank + 1)
+                    candidate_scores[candidate] += weight / (rank + 1)
 
         if candidate_scores:
             return max(candidate_scores, key=candidate_scores.get)
