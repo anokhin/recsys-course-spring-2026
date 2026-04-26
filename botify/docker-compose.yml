@@ -1,0 +1,24 @@
+version: '3'
+services:
+  nginx:
+    image: nginx:latest
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - recommender
+    ports:
+      - "5001:5001"
+
+  recommender:
+    build: .
+    entrypoint: gunicorn -k gevent -w 2 -b 0.0.0.0:5001 botify.server:app
+    ports:
+      - "5001"
+    depends_on:
+      - redis
+
+  redis:
+    image: redis
+    container_name: redis-container
+    ports:
+      - "6379:6379"
