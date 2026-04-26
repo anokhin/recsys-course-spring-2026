@@ -1,3 +1,0 @@
-sim/data/embeddings.npy filter=lfs diff=lfs merge=lfs -text
-sim/data/tracks.json filter=lfs diff=lfs merge=lfs -text
-sim/data/users.json filter=lfs diff=lfs merge=lfs -text
