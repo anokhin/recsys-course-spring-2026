@@ -24,20 +24,28 @@ def year_bucket(year):
 
 def build_feature_text(track: dict) -> str:
     parts = []
+    # Summary and title carry the richest semantic signal — the simulator
+    # builds LLM embeddings from this same text, so TF-IDF on it
+    # approximates embedding-space cosine similarity.
+    summary = track.get("summary") or ""
+    if summary:
+        parts.append(summary)
+    title = track.get("title") or ""
+    if title:
+        parts.append(title)
+
+    # Categorical features boosted by repetition for stronger weight
     genres = track.get("genres") or []
     parts.extend(genres * 3)
     ag = track.get("artist_genre") or ""
     if ag:
         parts.extend([ag] * 2)
-
     mood = track.get("mood") or ""
     if mood:
         parts.extend([mood.replace(" ", "_")] * 3)
-
     country = track.get("artist_country") or ""
     if country:
         parts.append(country.replace(" ", "_"))
-
     parts.append(year_bucket(track.get("year")))
     return " ".join(parts)
 
@@ -64,7 +72,7 @@ def main():
     print("Converting to dense for fast dot-product...")
     mat = tfidf_dense.toarray().astype(np.float32)
 
-    print(f"Generating top-{TOP_K} content I2I (same-artist excluded)...")
+    print(f"Generating top-{TOP_K} content I2I...")
     results = {}
 
     n = len(track_ids)
@@ -75,20 +83,13 @@ def main():
 
         for i, row_sims in enumerate(sims):
             idx = start + i
-            anchor_artist = artists[idx]
             anchor_id = track_ids[idx]
 
-            mask = np.ones(n, dtype=bool)
-            mask[idx] = False
-            for j, a in enumerate(artists):
-                if a == anchor_artist:
-                    mask[j] = False
+            # Only exclude self
+            row_sims[idx] = -1.0
 
-            valid_sims = row_sims.copy()
-            valid_sims[~mask] = -1.0
-
-            top_indices = np.argpartition(valid_sims, -TOP_K)[-TOP_K:]
-            top_indices = top_indices[np.argsort(-valid_sims[top_indices])]
+            top_indices = np.argpartition(row_sims, -TOP_K)[-TOP_K:]
+            top_indices = top_indices[np.argsort(-row_sims[top_indices])]
 
             results[anchor_id] = [track_ids[j] for j in top_indices]
 

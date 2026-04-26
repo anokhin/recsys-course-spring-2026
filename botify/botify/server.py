@@ -16,7 +16,6 @@ from botify.recommenders.i2i import I2IRecommender
 from botify.recommenders.random import Random
 from botify.recommenders.indexed import Indexed
 from botify.recommenders.sticky_artist import StickyArtist
-from botify.recommenders.content_i2i import ContentI2IRecommender
 from botify.track import Catalog
 
 root = logging.getLogger()
@@ -90,12 +89,10 @@ sasrec_i2i_recommender = I2IRecommender(
     random_recommender,
 )
 
-content_i2i_recommender = ContentI2IRecommender(
+content_i2i_recommender = I2IRecommender(
     listen_history_redis.connection,
     recommendations_content_redis.connection,
-    tracks_redis.connection,
-    catalog,
-    sasrec_i2i_recommender,
+    random_recommender,
 )
 
 parser = reqparse.RequestParser()
@@ -107,11 +104,7 @@ LISTEN_HISTORY_LIMIT = 10
 
 def persist_user_listen_history(user: int, track: int, track_time: float):
     user_history_key = f"user:{user}:listens"
-    raw = tracks_redis.connection.get(track)
-    artist = catalog.from_bytes(raw).artist if raw is not None else ""
-    history_entry = json.dumps(
-        {"track": track, "time": track_time, "artist": artist}
-    )
+    history_entry = json.dumps({"track": track, "time": track_time})
     listen_history_redis.connection.lpush(user_history_key, history_entry)
     listen_history_redis.connection.ltrim(
         user_history_key, 0, LISTEN_HISTORY_LIMIT - 1
