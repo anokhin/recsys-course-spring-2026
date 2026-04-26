@@ -26,6 +26,13 @@
   "REDIS_RECOMMENDATIONS_HSTU_DB": 5,
   "RECOMMENDATIONS_HSTU_FILE_PATH": "./data/hstu_recommendations.json",
 
+  "REDIS_SESSION_STATE_HOST": "redis",
+  "REDIS_SESSION_STATE_PORT": 6379,
+  "REDIS_SESSION_STATE_DB": 6,
+
+  "LEARNED_RANKER_MODEL_PATH": "./data/learned_ranker.lgb",
+  "LEARNED_RANKER_META_PATH": "./data/learned_ranker_meta.json",
+
   "TRACKS_CATALOG": "./data/tracks.json",
   "DATA_LOG_FILE": "./log/data.json",
   "DATA_LOG_FILE_MAX_BYTES": 104857600,
