@@ -1,9 +1,11 @@
 import json
 import logging
+import os
 import time
 import atexit
 from dataclasses import asdict
 from datetime import datetime
+from pathlib import Path
 
 from flask import Flask
 from flask_redis import Redis
@@ -14,64 +16,64 @@ from botify.data import DataLogger, Datum
 from botify.experiment import Experiments, Treatment
 from botify.recommenders.i2i import I2IRecommender
 from botify.recommenders.random import Random
-from botify.recommenders.indexed import Indexed
-from botify.recommenders.sticky_artist import StickyArtist
+from botify.recommenders.session_blend import SessionBlendRecommender
 from botify.track import Catalog
 
 root = logging.getLogger()
 root.setLevel("INFO")
 
 app = Flask(__name__)
-app.config.from_file("config.json", load=json.load)
+app.config.from_file(os.getenv("BOTIFY_CONFIG_PATH", "config.json"), load=json.load)
 api = Api(app)
 
-tracks_redis = Redis(app, config_prefix="REDIS_TRACKS")
-artists_redis = Redis(app, config_prefix="REDIS_ARTIST")
 listen_history_redis = Redis(app, config_prefix="REDIS_LISTEN_HISTORY")
-recommendations_lfm_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_LFM")
-recommendations_contextual_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_SASREC")
-
-recommendations_hstu_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_HSTU")
 
 data_logger = DataLogger(app)
 atexit.register(data_logger.close)
 
+
+def load_recommendations(path, key_object, key_recommendations):
+    result = {}
+    with open(path) as handle:
+        for line in handle:
+            row = json.loads(line)
+            result[int(row[key_object])] = [int(track) for track in row[key_recommendations]]
+    return result
+
+
 catalog = Catalog(app).load(app.config["TRACKS_CATALOG"])
-catalog.upload_tracks(tracks_redis.connection)
-catalog.upload_artists(artists_redis.connection)
+track_lookup = {track.track: track for track in catalog.tracks}
+all_track_ids = [track.track for track in catalog.tracks]
+lightfm_store = load_recommendations(app.config["RECOMMENDATIONS_LFM_FILE_PATH"], "item_id", "recommendations")
+sasrec_store = load_recommendations(app.config["RECOMMENDATIONS_SASREC_FILE_PATH"], "item_id", "recommendations")
+hstu_store = load_recommendations(app.config["RECOMMENDATIONS_HSTU_FILE_PATH"], "user", "tracks")
 
-random_recommender = Random(tracks_redis.connection)
-sticky_artist_recommender = StickyArtist(tracks_redis, artists_redis, catalog)
-
-catalog.upload_recommendations(
-    recommendations_lfm_redis.connection,
-    "RECOMMENDATIONS_LFM_FILE_PATH",
-    key_object="item_id",
-    key_recommendations="recommendations",
-)
+random_recommender = Random(all_track_ids)
 lightfm_i2i_recommender = I2IRecommender(
     listen_history_redis.connection,
-    recommendations_lfm_redis.connection,
+    lightfm_store,
     random_recommender,
 )
-
-catalog.upload_recommendations(
-    recommendations_contextual_redis.connection,
-    "RECOMMENDATIONS_SASREC_FILE_PATH",
-    key_object="item_id",
-    key_recommendations="recommendations",
-)
-
-catalog.upload_recommendations(
-    recommendations_hstu_redis.connection,
-    "RECOMMENDATIONS_HSTU_FILE_PATH"
-)
-
 
 sasrec_i2i_recommender = I2IRecommender(
     listen_history_redis.connection,
-    recommendations_contextual_redis.connection,
+    sasrec_store,
     random_recommender,
+)
+
+session_blend_path = Path(app.config["SESSION_BLEND_MODEL_FILE_PATH"])
+session_blend_recommender = (
+    SessionBlendRecommender(
+        listen_history_redis.connection,
+        sasrec_store,
+        lightfm_store,
+        hstu_store,
+        catalog,
+        sasrec_i2i_recommender,
+        session_blend_path,
+    )
+    if session_blend_path.exists()
+    else None
 )
 
 parser = reqparse.RequestParser()
@@ -98,11 +100,9 @@ class Hello(Resource):
 
 class Track(Resource):
     def get(self, track: int):
-        data = tracks_redis.connection.get(track)
-        if data is not None:
-            return asdict(catalog.from_bytes(data))
-        else:
-            abort(404, description="Track not found")
+        if track in track_lookup:
+            return asdict(track_lookup[track])
+        abort(404, description="Track not found")
 
 
 class NextTrack(Resource):
@@ -117,7 +117,7 @@ class NextTrack(Resource):
         if treatment == Treatment.C:
             recommender = sasrec_i2i_recommender
         elif treatment == Treatment.T1:
-            recommender = Indexed(recommendations_hstu_redis.connection, catalog, random_recommender)
+            recommender = session_blend_recommender or sasrec_i2i_recommender
         else:
             recommender = random_recommender
 

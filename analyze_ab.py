@@ -16,6 +16,7 @@ METRICS = [
     "mean_tracks_per_session",
     "mean_time_per_session",
 ]
+TARGET_METRIC = "mean_time_per_session"
 
 
 def read_logs(data_dir: Path) -> pd.DataFrame:
@@ -122,6 +123,21 @@ def compute_effects(user_metrics: pd.DataFrame) -> list:
     return effects
 
 
+def summarize_target(effects: list) -> dict:
+    target = next((effect for effect in effects if effect["metric"] == TARGET_METRIC), None)
+    if target is None:
+        return {
+            "beat_control": False,
+            "significant": False,
+            "lift_pct": None,
+        }
+    return {
+        "beat_control": float(target["effect_pct"]) > 0,
+        "significant": bool(target["significant"]),
+        "lift_pct": float(target["effect_pct"]),
+    }
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--data", required=True)
@@ -145,8 +161,10 @@ def main():
 
     out = Path(args.output)
     out.parent.mkdir(parents=True, exist_ok=True)
+    result = {"all_effects": effects}
+    result.update(summarize_target(effects))
     with open(out, "w") as f:
-        json.dump({"all_effects": effects}, f, indent=2, ensure_ascii=False)
+        json.dump(result, f, indent=2, ensure_ascii=False)
     print(f"\n💾 {out}")
 
 

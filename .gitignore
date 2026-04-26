@@ -1,4 +1,5 @@
 .idea/
+.venv/
 sim/out/
 __pycache__
 .ipynb_checkpoints
