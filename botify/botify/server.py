@@ -16,6 +16,7 @@ from botify.recommenders.i2i import I2IRecommender
 from botify.recommenders.random import Random
 from botify.recommenders.indexed import Indexed
 from botify.recommenders.sticky_artist import StickyArtist
+from botify.recommenders.content_i2i import ContentI2IRecommender
 from botify.track import Catalog
 
 root = logging.getLogger()
@@ -28,10 +29,19 @@ api = Api(app)
 tracks_redis = Redis(app, config_prefix="REDIS_TRACKS")
 artists_redis = Redis(app, config_prefix="REDIS_ARTIST")
 listen_history_redis = Redis(app, config_prefix="REDIS_LISTEN_HISTORY")
-recommendations_lfm_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_LFM")
-recommendations_contextual_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_SASREC")
+recommendations_lfm_redis = Redis(
+    app, config_prefix="REDIS_RECOMMENDATIONS_LFM"
+)
+recommendations_contextual_redis = Redis(
+    app, config_prefix="REDIS_RECOMMENDATIONS_SASREC"
+)
 
-recommendations_hstu_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_HSTU")
+recommendations_hstu_redis = Redis(
+    app, config_prefix="REDIS_RECOMMENDATIONS_HSTU"
+)
+recommendations_content_redis = Redis(
+    app, config_prefix="REDIS_RECOMMENDATIONS_CONTENT"
+)
 
 data_logger = DataLogger(app)
 atexit.register(data_logger.close)
@@ -63,8 +73,14 @@ catalog.upload_recommendations(
 )
 
 catalog.upload_recommendations(
-    recommendations_hstu_redis.connection,
-    "RECOMMENDATIONS_HSTU_FILE_PATH"
+    recommendations_hstu_redis.connection, "RECOMMENDATIONS_HSTU_FILE_PATH"
+)
+
+catalog.upload_recommendations(
+    recommendations_content_redis.connection,
+    "RECOMMENDATIONS_CONTENT_FILE_PATH",
+    key_object="item_id",
+    key_recommendations="recommendations",
 )
 
 
@@ -72,6 +88,14 @@ sasrec_i2i_recommender = I2IRecommender(
     listen_history_redis.connection,
     recommendations_contextual_redis.connection,
     random_recommender,
+)
+
+content_i2i_recommender = ContentI2IRecommender(
+    listen_history_redis.connection,
+    recommendations_content_redis.connection,
+    tracks_redis.connection,
+    catalog,
+    sasrec_i2i_recommender,
 )
 
 parser = reqparse.RequestParser()
@@ -83,9 +107,15 @@ LISTEN_HISTORY_LIMIT = 10
 
 def persist_user_listen_history(user: int, track: int, track_time: float):
     user_history_key = f"user:{user}:listens"
-    history_entry = json.dumps({"track": track, "time": track_time})
+    raw = tracks_redis.connection.get(track)
+    artist = catalog.from_bytes(raw).artist if raw is not None else ""
+    history_entry = json.dumps(
+        {"track": track, "time": track_time, "artist": artist}
+    )
     listen_history_redis.connection.lpush(user_history_key, history_entry)
-    listen_history_redis.connection.ltrim(user_history_key, 0, LISTEN_HISTORY_LIMIT - 1)
+    listen_history_redis.connection.ltrim(
+        user_history_key, 0, LISTEN_HISTORY_LIMIT - 1
+    )
 
 
 class Hello(Resource):
@@ -112,14 +142,12 @@ class NextTrack(Resource):
         args = parser.parse_args()
         persist_user_listen_history(user, args.track, args.time)
 
-        treatment = Experiments.HSTU.assign(user)
+        treatment = Experiments.CONTENT_I2I.assign(user)
 
-        if treatment == Treatment.C:
-            recommender = sasrec_i2i_recommender
-        elif treatment == Treatment.T1:
-            recommender = Indexed(recommendations_hstu_redis.connection, catalog, random_recommender)
+        if treatment == Treatment.T1:
+            recommender = content_i2i_recommender
         else:
-            recommender = random_recommender
+            recommender = sasrec_i2i_recommender
 
         recommendation = recommender.recommend_next(user, args.track, args.time)
 
@@ -150,7 +178,7 @@ class LastTrack(Resource):
                 args.track,
                 args.time,
                 time.time() - start,
-            )
+            ),
         )
         return {"user": user}
 
