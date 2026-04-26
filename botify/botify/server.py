@@ -16,7 +16,7 @@ from botify.recommenders.i2i import I2IRecommender
 from botify.recommenders.random import Random
 from botify.recommenders.indexed import Indexed
 from botify.recommenders.sticky_artist import StickyArtist
-from botify.recommenders.smart_indexed import SmartIndexed
+from botify.recommenders.aggregated_i2i import AggregatedI2I
 from botify.track import Catalog
 
 root = logging.getLogger()
@@ -73,10 +73,9 @@ sasrec_i2i_recommender = I2IRecommender(
     random_recommender,
 )
 
-smart_hstu_recommender = SmartIndexed(
-    recommendations_hstu_redis.connection,
+aggregated_sasrec_recommender = AggregatedI2I(
     listen_history_redis.connection,
-    catalog,
+    recommendations_contextual_redis.connection,
     random_recommender,
 )
 
@@ -123,7 +122,7 @@ class NextTrack(Resource):
         if treatment == Treatment.C:
             recommender = sasrec_i2i_recommender
         elif treatment == Treatment.T1:
-            recommender = lightfm_i2i_recommender
+            recommender = aggregated_sasrec_recommender
         else:
             recommender = random_recommender
 
