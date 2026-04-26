@@ -119,10 +119,11 @@ class NextTrack(Resource):
         if treatment == Treatment.C:
             recommender = sasrec_i2i_recommender
         elif treatment == Treatment.T1:
-            recommender = EnsembleI2I(
+            recommender = HSTUReranked(
                 listen_history_redis.connection,
+                recommendations_hstu_redis.connection,
                 recommendations_contextual_redis.connection,
-                recommendations_lfm_redis.connection,
+                catalog,
                 sasrec_i2i_recommender,
             )
         else:
