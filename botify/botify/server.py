@@ -30,8 +30,8 @@ artists_redis = Redis(app, config_prefix="REDIS_ARTIST")
 listen_history_redis = Redis(app, config_prefix="REDIS_LISTEN_HISTORY")
 recommendations_lfm_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_LFM")
 recommendations_contextual_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_SASREC")
-
 recommendations_hstu_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_HSTU")
+recommendations_implicit_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_IMPLICIT")
 
 data_logger = DataLogger(app)
 atexit.register(data_logger.close)
@@ -67,10 +67,22 @@ catalog.upload_recommendations(
     "RECOMMENDATIONS_HSTU_FILE_PATH"
 )
 
+catalog.upload_recommendations(
+    recommendations_implicit_redis.connection,
+    "RECOMMENDATIONS_IMPLICIT_FILE_PATH",
+    key_object="item_id",
+    key_recommendations="recommendations",
+)
 
 sasrec_i2i_recommender = I2IRecommender(
     listen_history_redis.connection,
     recommendations_contextual_redis.connection,
+    random_recommender,
+)
+
+implicit_i2i_recommender = I2IRecommender(
+    listen_history_redis.connection,
+    recommendations_implicit_redis.connection,
     random_recommender,
 )
 
@@ -117,7 +129,7 @@ class NextTrack(Resource):
         if treatment == Treatment.C:
             recommender = sasrec_i2i_recommender
         elif treatment == Treatment.T1:
-            recommender = Indexed(recommendations_hstu_redis.connection, catalog, random_recommender)
+            recommender = implicit_i2i_recommender
         else:
             recommender = random_recommender
 
