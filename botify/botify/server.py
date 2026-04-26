@@ -64,7 +64,9 @@ catalog.upload_recommendations(
 
 catalog.upload_recommendations(
     recommendations_hstu_redis.connection,
-    "RECOMMENDATIONS_HSTU_FILE_PATH"
+    "RECOMMENDATIONS_HSTU_FILE_PATH",
+    key_object="item_id",
+    key_recommendations="recommendations",
 )
 
 
@@ -74,7 +76,7 @@ sasrec_i2i_recommender = I2IRecommender(
     random_recommender,
 )
 
-hstu_recommender = HSTURecommender(
+hstu_recommender = I2IRecommender(
     listen_history_redis.connection,
     recommendations_hstu_redis.connection,
     sasrec_i2i_recommender,
