@@ -1,0 +1,60 @@
+{
+  "experiment": "HW2",
+  "all_effects": [
+    {
+      "treatment": "T1",
+      "metric": "time",
+      "control_mean": 21.8281,
+      "treatment_mean": 26.4594,
+      "effect_pct": 21.22,
+      "lower_pct": 18.12,
+      "upper_pct": 24.31,
+      "significant": true
+    },
+    {
+      "treatment": "T1",
+      "metric": "sessions",
+      "control_mean": 3.1692,
+      "treatment_mean": 3.1422,
+      "effect_pct": -0.85,
+      "lower_pct": -2.94,
+      "upper_pct": 1.23,
+      "significant": false
+    },
+    {
+      "treatment": "T1",
+      "metric": "mean_request_latency",
+      "control_mean": 0.5673,
+      "treatment_mean": 1.2603,
+      "effect_pct": 122.16,
+      "lower_pct": 116.19,
+      "upper_pct": 128.12,
+      "significant": true
+    },
+    {
+      "treatment": "T1",
+      "metric": "mean_tracks_per_session",
+      "control_mean": 11.9942,
+      "treatment_mean": 13.7967,
+      "effect_pct": 15.03,
+      "lower_pct": 13.6,
+      "upper_pct": 16.46,
+      "significant": true
+    },
+    {
+      "treatment": "T1",
+      "metric": "mean_time_per_session",
+      "control_mean": 7.005,
+      "treatment_mean": 8.7926,
+      "effect_pct": 25.52,
+      "lower_pct": 23.21,
+      "upper_pct": 27.83,
+      "significant": true
+    }
+  ],
+  "beat_control": true,
+  "lift_pct": 25.52,
+  "significant": true,
+  "primary_metric": "mean_time_per_session",
+  "treatment": "T1"
+}

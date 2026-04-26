@@ -3,11 +3,6 @@ sim/out/
 __pycache__
 .ipynb_checkpoints
 botify/log/*
-botify/data/*.json
-!botify/data/tracks.json
-botify/data/ml/
-.venv/
-data/
 .DS_Store
 
 # LaTeX
