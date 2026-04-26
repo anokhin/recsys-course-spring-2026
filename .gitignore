@@ -1,10 +1,15 @@
 .idea/
+.venv/
+/data/
+sim/data_lfs_pointers_backup/
 sim/out/
 __pycache__
 .ipynb_checkpoints
 botify/log/*
 botify/data/*.json
 !botify/data/tracks.json
+!botify/data/user_top_recommendations.json
+!botify/data/session_value_model.json
 .DS_Store
 
 # LaTeX
