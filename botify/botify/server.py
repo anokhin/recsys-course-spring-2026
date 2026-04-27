@@ -17,6 +17,7 @@ from botify.recommenders.random import Random
 from botify.recommenders.indexed import Indexed
 from botify.recommenders.sticky_artist import StickyArtist
 from botify.track import Catalog
+from botify.recommenders.smart_i2i import SmartI2IRecommender
 
 root = logging.getLogger()
 root.setLevel("INFO")
@@ -79,7 +80,7 @@ sasrec_i2i_recommender = I2IRecommender(
     random_recommender,
 )
 
-svd_i2i_recommender = I2IRecommender(
+svd_i2i_recommender = SmartI2IRecommender(
     listen_history_redis.connection,
     recommendations_svd_redis.connection,
     random_recommender,
