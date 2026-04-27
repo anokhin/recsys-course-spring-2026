@@ -17,6 +17,7 @@ from botify.recommenders.random import Random
 from botify.recommenders.indexed import Indexed
 from botify.recommenders.sticky_artist import StickyArtist
 from botify.recommenders.hstu_sasrec_reranker import HSTUwithSasRecReranker
+from botify.recommenders.prev_track_i2i import PrevTrackI2I
 from botify.track import Catalog
 
 root = logging.getLogger()
@@ -73,19 +74,18 @@ sasrec_i2i_recommender = I2IRecommender(
     random_recommender,
 )
 
-hstu_lightfm_recommender = HSTUwithLightFMReranker(
-    recommendations_hstu_redis.connection,
-    recommendations_lfm_redis.connection,
-    listen_history_redis.connection,
-    catalog,
-    random_recommender,
-)
 
 hstu_sasrec_recommender = HSTUwithSasRecReranker(
     recommendations_hstu_redis.connection,
     recommendations_contextual_redis.connection,
     listen_history_redis.connection,
     catalog,
+    random_recommender,
+)
+
+prev_track_recommender = PrevTrackI2I(
+    listen_history_redis.connection,
+    recommendations_contextual_redis.connection,
     random_recommender,
 )
 
