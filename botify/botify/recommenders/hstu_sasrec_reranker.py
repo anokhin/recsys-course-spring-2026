@@ -55,7 +55,10 @@ class HSTUwithSasRecReranker(Recommender):
             return max(scores, key=scores.get)
 
         # Fallback: return first unseen HSTU candidate
-        return next(iter(unseen_candidates))
+        for c in candidates:
+            if c not in seen_tracks:
+                return c
+        return self.fallback.recommend_next(user, prev_track, prev_track_time)
 
     def _score_from_anchor(self, anchor, candidates, scores, weight):
         data = self.sasrec_redis.get(anchor)
