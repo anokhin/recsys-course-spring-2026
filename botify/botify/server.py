@@ -16,7 +16,7 @@ from botify.recommenders.i2i import I2IRecommender
 from botify.recommenders.random import Random
 from botify.recommenders.indexed import Indexed
 from botify.recommenders.sticky_artist import StickyArtist
-from botify.recommenders.hstu_context_reranker import HSTUContextReranker
+from botify.recommenders.hybrid_i2i_semantic_ranker import HybridI2ISemanticRanker
 from botify.track import Catalog
 
 root = logging.getLogger()
@@ -31,7 +31,6 @@ artists_redis = Redis(app, config_prefix="REDIS_ARTIST")
 listen_history_redis = Redis(app, config_prefix="REDIS_LISTEN_HISTORY")
 recommendations_lfm_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_LFM")
 recommendations_contextual_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_SASREC")
-
 recommendations_hstu_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_HSTU")
 
 data_logger = DataLogger(app)
@@ -68,18 +67,20 @@ catalog.upload_recommendations(
     "RECOMMENDATIONS_HSTU_FILE_PATH"
 )
 
-
 sasrec_i2i_recommender = I2IRecommender(
     listen_history_redis.connection,
     recommendations_contextual_redis.connection,
     random_recommender,
 )
 
-hstu_context_reranker = HSTUContextReranker(
-    recommendations_hstu_redis.connection,
+hybrid_i2i_semantic_ranker = HybridI2ISemanticRanker(
     listen_history_redis.connection,
+    recommendations_contextual_redis.connection,
+    recommendations_lfm_redis.connection,
     tracks_redis.connection,
+    artists_redis.connection,
     catalog,
+    app.config["TRACKS_CATALOG"],
     random_recommender,
 )
 
@@ -124,11 +125,11 @@ class NextTrack(Resource):
         treatment = Experiments.HSTU.assign(user)
 
         if treatment == Treatment.C:
-            # Control is exactly the required SasRec-I2I baseline.
+            # Required control: unchanged SasRec-I2I baseline.
             recommender = sasrec_i2i_recommender
         elif treatment == Treatment.T1:
-            # Treatment is HSTU candidate generation + online context reranking.
-            recommender = hstu_context_reranker
+            # Treatment: hybrid ML candidate generators + semantic session ranker.
+            recommender = hybrid_i2i_semantic_ranker
         else:
             recommender = random_recommender
 

@@ -2,22 +2,31 @@
 
 ### Abstract
 
-В качестве улучшения botify используется двухэтапный рекомендатель. offline HSTU-модель формирует персональный список кандидатов для пользователя, а online-слой на стороне сервиса делает лёгкий context-aware reranking. Контрольная группа остаётся неизменной. Пользователям показывается SasRec-I2I. В treatment показывается HSTU-based рекомендатель, который сохраняет порядок ML-кандидатов, но не отдаёт уже прослушанные в текущем контексте треки и снижает приоритет артистов, которые уже повторялись в сессии.
+В качестве улучшения Botify реализован hybrid session ranker для A/B-теста против SasRec-I2I. Контрольная группа остаётся неизменной, пользователям показывается стандартный SasRec-I2I. В treatment используется гибридный рекомендатель, он берёт кандидатов из двух ML-моделей, SasRec-I2I и LightFM-I2I, а затем ранжирует их с учётом текущей сессии пользователя. Для online-reranking дополнительно обучается content-based semantic model по публичному каталогу `botify/data/tracks.json`: TF-IDF по метаданным треков + TruncatedSVD. Данные из `sim/data/users.json`, `sim/data/tracks.json` и `sim/data/embeddings.npy` не используются.
 
 ### Детали реализации
 
-Кандидаты загружаются из `data/hstu_recommendations.json` в Redis при старте сервиса. Для каждого запроса `/next/<user>` рекомендатель берёт top-N кандидатов пользователя, читает короткую историю последних прослушиваний из Redis и выбирает лучший трек по скору: базовый скор зависит от позиции в HSTU-ранжировании, а затем умножается на мягкий штраф за повтор артиста. Если предыдущий трек был быстро пропущен, повтор того же артиста штрафуется сильнее. Это не меняет контрольный SasRec-I2I и не использует данные из `sim`.
+Реализация находится в `botify/botify/recommenders/hybrid_i2i_semantic_ranker.py`. На старте сервиса модель читает публичный каталог треков, собирает текстовое описание трека из названия, артиста, жанров, mood, года и summary, после чего строит dense-вектора через `TfidfVectorizer + TruncatedSVD`. На каждом запросе `/next/<user>` сервис читает короткую историю пользователя из Redis. Прослушивания с большим `time` получают больший вес, так как они лучше отражают текущий session intent; быстро пропущенные треки почти не влияют на профиль.
+
+Далее рекомендатель собирает небольшой пул кандидатов из SasRec-I2I и LightFM-I2I для всех последних anchor-треков, а не выбирает один случайный anchor. Кандидаты получают score из трёх частей: качество источника и позиция в его списке, семантическая близость к профилю текущей сессии и небольшой popularity prior. Повтор артиста штрафуется, потому что в симуляторе пользователи хуже реагируют на частые повторы одного исполнителя.
 
 ```mermaid
 flowchart LR
-    A[Request: user, prev_track, prev_time] --> B[Redis: recent listen history]
-    A --> C[Redis: HSTU user candidates]
-    C --> D[Remove seen tracks]
-    B --> E[Artist counters]
-    D --> F[Rank score + artist repeat penalty]
-    E --> F
-    F --> G[Next track]
+    A[Recent listen history] --> B[Anchor weights by time and recency]
+    C[SasRec-I2I candidates] --> E[Candidate pool]
+    D[LightFM-I2I candidates] --> E
+    F[tracks.json metadata] --> G[TF-IDF + SVD item vectors]
+    A --> H[Session semantic profile]
+    G --> H
+    E --> I[Hybrid score + artist repeat penalty]
+    H --> I
+    I --> J[Next recommended track]
 ```
 
 ### Результаты A/B эксперимента
 
+A/B-эксперимент запускается стандартным пайплайном курса: в control используется SasRec-I2I, в treatment — `HybridI2ISemanticRanker`.
+
+| treatment | metric | effect_pct | lower_pct | upper_pct | control_mean | treatment_mean | significant |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| T1 | mean_time_per_session | to be filled by CI | to be filled by CI | to be filled by CI | to be filled by CI | to be filled by CI | to be filled by CI |
