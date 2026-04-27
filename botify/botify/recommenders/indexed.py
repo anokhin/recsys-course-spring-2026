@@ -13,8 +13,10 @@ class Indexed(Recommender):
         recommendations = self.recommendations_redis.get(user)
 
         if recommendations is not None:
-            shuffled = list(self.catalog.from_bytes(recommendations))
-            random.shuffle(shuffled)
-            return shuffled[0]
+            recs = list(self.catalog.from_bytes(recommendations))
+            # Pick from top-10 to preserve ranking while allowing variety
+            top_k = recs[:10]
+            candidates = [t for t in top_k if t != prev_track] or top_k
+            return int(random.choice(candidates))
         else:
             return self.fallback.recommend_next(user, prev_track, prev_track_time)
