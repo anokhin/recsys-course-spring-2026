@@ -27,7 +27,7 @@ class PrevTrackI2I(Recommender):
         recs = self._get_recommendations(prev_track)
         for rank, track in enumerate(recs):
             if track not in seen_tracks:
-                scores[track] += 10.0 / (rank + 1)
+                scores[track] += 100.0 / (rank + 1)
 
         if history:
             best_anchor = max(history, key=lambda x: x[1])[0]
