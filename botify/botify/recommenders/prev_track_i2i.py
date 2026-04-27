@@ -20,10 +20,24 @@ class PrevTrackI2I(Recommender):
         history = self._load_user_history(user)
         seen_tracks = set(track for track, _ in history)
 
-        # Try prev_track first as the most relevant anchor
-        candidate = self._recommend_from_anchor(prev_track, seen_tracks)
-        if candidate is not None:
-            return candidate
+        # Score candidates from prev_track + top history anchor
+        from collections import defaultdict
+        scores = defaultdict(float)
+
+        recs = self._get_recommendations(prev_track)
+        for rank, track in enumerate(recs):
+            if track not in seen_tracks:
+                scores[track] += 10.0 / (rank + 1)
+
+        if history:
+            best_anchor = max(history, key=lambda x: x[1])[0]
+            recs2 = self._get_recommendations(best_anchor)
+            for rank, track in enumerate(recs2):
+                if track not in seen_tracks:
+                    scores[track] += prev_track_time / (rank + 1)
+
+        if scores:
+            return max(scores, key=scores.get)
 
         # Fall back to history anchors by recency
         for track, _ in history:
@@ -43,6 +57,12 @@ class PrevTrackI2I(Recommender):
             entry = json.loads(raw)
             history.append((int(entry["track"]), float(entry["time"])))
         return history
+
+    def _get_recommendations(self, anchor: int):
+        data = self.i2i_redis.get(anchor)
+        if data is None:
+            return []
+        return [int(t) for t in pickle.loads(data)]
 
     def _recommend_from_anchor(self, anchor: int, seen_tracks):
         data = self.i2i_redis.get(anchor)
