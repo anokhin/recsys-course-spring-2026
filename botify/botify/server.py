@@ -16,7 +16,6 @@ from botify.recommenders.i2i import I2IRecommender
 from botify.recommenders.random import Random
 from botify.recommenders.indexed import Indexed
 from botify.recommenders.sticky_artist import StickyArtist
-from botify.recommenders.hstu_lightfm_reranker import HSTUwithLightFMReranker
 from botify.recommenders.hstu_sasrec_reranker import HSTUwithSasRecReranker
 from botify.track import Catalog
 
