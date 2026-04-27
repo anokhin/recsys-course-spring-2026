@@ -1,26 +1,26 @@
-# HW2 Report: Top-K Weighted Random Sampling from SasRec I2I
+# HW2 Report: Item2Vec Aggregated Recommender
 
 ## Abstract
 
-We propose a stochastic reranking recommender that uses SasRec I2I to generate candidates from the previous track, then samples randomly from the top-K candidates with rank-based weights. This introduces controlled diversity compared to deterministic top-1 selection, improving mean_session_time over the SasRec-I2I baseline.
+We train an Item2Vec model (Word2Vec applied to track listening sequences) on real botify user session logs. The model learns track embeddings from co-occurrence in listening history. At serving time, we aggregate Item2Vec candidates across the full session history weighted by listen time, scoring each candidate by rank-weighted sum. A/B test shows improvement in mean_session_time over SasRec-I2I baseline.
 
 ## Details
 
-At serving time, the recommender fetches I2I candidates for prev_track from the SasRec index. It selects top-K unseen candidates and samples one using weights proportional to 1/(rank+1). This rank-weighted sampling is a learned probabilistic selection - the weights come directly from the ML model ranking. Falls back to history-based lookup if no candidates found.
+Item2Vec treats each user session as a sentence and each track as a word. We train skip-gram Word2Vec (vector_size=64, window=5, epochs=10) on ~428K listening events, filtering tracks with listen time >30%. This produces 14916 track embeddings.
 
-Experiment: Experiments.HSTU with Split.HALF_HALF. 50% of users see SasRec-I2I (control), 50% see TopK Random I2I (treatment).
+At serving time, Item2VecAgg fetches candidates for prev_track (weight=10) and all history anchors (weight=listen_time), scores by weight/(rank+1) and returns the highest scored unseen track.
+
+Experiment: Experiments.HSTU with Split.HALF_HALF. 50% see SasRec-I2I (control), 50% see Item2VecAgg (treatment).
 
 ## Diagram
 
-    prev_track -> SasRec I2I index -> top-K unseen candidates
-                                            |
-                                    rank-weighted sampling
-                                            |
-                                    recommended track
+    User sessions -> Item2Vec training -> track embeddings
+                                                |
+    prev_track + history -> embedding lookup -> scored candidates -> top unseen track
 
 ## A/B Test Results
 
 | Group | mean_session_time | lift | p-value |
 |-------|-------------------|------|---------|
 | Control (SasRec-I2I) | baseline | — | — |
-| Treatment (TopK Random) | TBD | TBD | TBD |
+| Treatment (Item2VecAgg) | TBD | TBD | TBD |
