@@ -5,8 +5,8 @@ import atexit
 from dataclasses import asdict
 from datetime import datetime
 
+import redis
 from flask import Flask
-from flask_redis import Redis
 from flask_restful import Resource, Api, abort, reqparse
 from gevent.pywsgi import WSGIServer
 
@@ -15,6 +15,8 @@ from botify.experiment import Experiments, Treatment
 from botify.recommenders.i2i import I2IRecommender
 from botify.recommenders.random import Random
 from botify.recommenders.indexed import Indexed
+from botify.recommenders.xgb_recommender import XGBRecommender
+
 from botify.recommenders.sticky_artist import StickyArtist
 from botify.track import Catalog
 
@@ -23,7 +25,31 @@ root.setLevel("INFO")
 
 app = Flask(__name__)
 app.config.from_file("config.json", load=json.load)
+app.config["REDIS_TRACKS_HOST"] = "localhost"
+app.config["REDIS_ARTIST_HOST"] = "localhost"
+app.config["REDIS_LISTEN_HISTORY_HOST"] = "localhost"
+app.config["REDIS_RECOMMENDATIONS_LFM_HOST"] = "localhost"
+app.config["REDIS_RECOMMENDATIONS_SASREC_HOST"] = "localhost"
+app.config["REDIS_RECOMMENDATIONS_HSTU_HOST"] = "localhost"
+
 api = Api(app)
+
+# Класс-обёртка для Redis, совместимый с flask_redis
+class FlaskRedis:
+    def __init__(self, app=None, config_prefix="REDIS"):
+        self.connection = None
+        if app:
+            self.init_app(app, config_prefix)
+
+    def init_app(self, app, config_prefix="REDIS"):
+        host = app.config.get(f"{config_prefix}_HOST", "localhost")
+        port = app.config.get(f"{config_prefix}_PORT", 6379)
+        db = app.config.get(f"{config_prefix}_DB", 0)
+        self.connection = redis.Redis(host=host, port=port, db=db, decode_responses=False)
+        print(f"[Redis] Connected to {host}:{port} for {config_prefix}")
+
+# Используем FlaskRedis вместо Redis
+Redis = FlaskRedis
 
 tracks_redis = Redis(app, config_prefix="REDIS_TRACKS")
 artists_redis = Redis(app, config_prefix="REDIS_ARTIST")
@@ -116,8 +142,10 @@ class NextTrack(Resource):
 
         if treatment == Treatment.C:
             recommender = sasrec_i2i_recommender
+        
         elif treatment == Treatment.T1:
-            recommender = Indexed(recommendations_hstu_redis.connection, catalog, random_recommender)
+            recommender = XGBRecommender(catalog, None, None)
+
         else:
             recommender = random_recommender
 
