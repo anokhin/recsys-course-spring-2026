@@ -67,6 +67,8 @@ class Experiments:
     I2I = Experiment("I2I", Split.THREE_WAY)
     HSTU = Experiment("HSTU", Split.HALF_HALF)
     HW2_ML_RANKED = Experiment("HW2_ML_RANKED", Split.HALF_HALF)
+    HW2_CATALOG_CONTEXT = Experiment("HW2_CATALOG_CONTEXT", Split.HALF_HALF)
+    HW2_CONTENT_HYBRID = Experiment("HW2_CONTENT_HYBRID", Split.HALF_HALF)
 
     def __init__(self):
-        self.experiments = [Experiments.HW2_ML_RANKED]
+        self.experiments = [Experiments.HW2_CONTENT_HYBRID]

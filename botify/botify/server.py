@@ -12,9 +12,9 @@ from gevent.pywsgi import WSGIServer
 
 from botify.data import DataLogger, Datum
 from botify.experiment import Experiments, Treatment
+from botify.recommenders.hybrid_contextual import HybridContextualRecommender
 from botify.recommenders.i2i import I2IRecommender
 from botify.recommenders.random import Random
-from botify.recommenders.ranked_user import RankedUserRecommender
 from botify.recommenders.sticky_artist import StickyArtist
 from botify.track import Catalog
 
@@ -30,8 +30,7 @@ artists_redis = Redis(app, config_prefix="REDIS_ARTIST")
 listen_history_redis = Redis(app, config_prefix="REDIS_LISTEN_HISTORY")
 recommendations_lfm_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_LFM")
 recommendations_contextual_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_SASREC")
-
-recommendations_hstu_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_HSTU")
+recommendations_content_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_CONTENT")
 
 data_logger = DataLogger(app)
 atexit.register(data_logger.close)
@@ -61,21 +60,25 @@ catalog.upload_recommendations(
     key_object="item_id",
     key_recommendations="recommendations",
 )
-
 catalog.upload_recommendations(
-    recommendations_hstu_redis.connection,
-    "RECOMMENDATIONS_HSTU_FILE_PATH"
+    recommendations_content_redis.connection,
+    "RECOMMENDATIONS_CONTENT_FILE_PATH",
+    key_object="item_id",
+    key_recommendations="recommendations",
 )
-
 
 sasrec_i2i_recommender = I2IRecommender(
     listen_history_redis.connection,
     recommendations_contextual_redis.connection,
     random_recommender,
 )
-hstu_user_recommender = RankedUserRecommender(
+hybrid_contextual_recommender = HybridContextualRecommender(
     listen_history_redis.connection,
-    recommendations_hstu_redis.connection,
+    tracks_redis.connection,
+    catalog,
+    recommendations_content_redis.connection,
+    recommendations_lfm_redis.connection,
+    recommendations_contextual_redis.connection,
     sasrec_i2i_recommender,
 )
 
@@ -117,12 +120,12 @@ class NextTrack(Resource):
         args = parser.parse_args()
         persist_user_listen_history(user, args.track, args.time)
 
-        treatment = Experiments.HW2_ML_RANKED.assign(user)
+        treatment = Experiments.HW2_CONTENT_HYBRID.assign(user)
 
         if treatment == Treatment.C:
             recommender = sasrec_i2i_recommender
         elif treatment == Treatment.T1:
-            recommender = hstu_user_recommender
+            recommender = hybrid_contextual_recommender
         else:
             recommender = random_recommender
 
