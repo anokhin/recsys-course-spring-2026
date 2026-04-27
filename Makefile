@@ -10,9 +10,9 @@ PIP    = $(VENV)/bin/pip
 
 setup:
 	python3 -m venv $(VENV)
-	$(PIP) install --upgrade pip --timeout 120 -q
-	$(PIP) install -r sim/requirements.txt --timeout 120 -q
-	$(PIP) install -r botify/requirements.txt --timeout 120 -q
+	$(PIP) install --upgrade pip --timeout 120
+	$(PIP) install -r sim/requirements.txt --timeout 120
+	$(PIP) install -r botify/requirements.txt --timeout 120
 	cd botify && docker compose down -v --remove-orphans 2>/dev/null || true
 	cd botify && docker compose up -d --build --force-recreate --scale recommender=2
 	sleep 20
