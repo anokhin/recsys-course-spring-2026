@@ -29,7 +29,7 @@
   "REDIS_RECOMMENDATIONS_SVD_HOST": "redis",
   "REDIS_RECOMMENDATIONS_SVD_PORT": 6379,
   "REDIS_RECOMMENDATIONS_SVD_DB": 6,
-  "RECOMMENDATIONS_SVD_FILE_PATH": "./data/svd_ml_i2i.jsonl",
+  "RECOMMENDATIONS_SVD_FILE_PATH": "./data/svd_full_i2i.jsonl",
 
   "TRACKS_CATALOG": "./data/tracks.json",
   "DATA_LOG_FILE": "./log/data.json",
