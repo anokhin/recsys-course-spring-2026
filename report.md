@@ -1,25 +1,26 @@
-# HW2 Report: PrevTrack I2I Recommender
+# HW2 Report: Item2Vec Recommender
 
 ## Abstract
 
-We propose a recommender that uses the immediately previous track as the primary anchor for SasRec I2I lookup, combined with session history fallback ordered by recency. This captures the most recent user intent signal rather than randomly sampling from history anchors as in the baseline SasRec-I2I.
+We train an Item2Vec model (Word2Vec applied to track listening sequences) on real botify user session logs. The model learns track embeddings from co-occurrence patterns in listening history. At serving time, we use the previous track as an anchor to retrieve the most similar unseen tracks via learned embeddings. A/B test shows statistically significant improvement in mean_session_time over SasRec-I2I baseline.
 
 ## Details
 
-At serving time, the recommender first fetches I2I candidates for prev_track from the SasRec neural model index. If no unseen candidates found, it falls back to history anchors ordered by recency. SasRec is a self-attentive sequential recommendation transformer model trained on user listening history.
+Item2Vec treats each user listening session as a "sentence" and each track as a "word". We train a skip-gram Word2Vec model (vector_size=64, window=5, epochs=10) on ~428K listening events from real botify logs, filtering tracks with listen time >30%. This produces 14916 track embeddings capturing semantic similarity between tracks.
 
-Experiment: Experiments.HSTU with Split.HALF_HALF. 50% of users see SasRec-I2I (control), 50% see PrevTrack I2I (treatment).
+At serving time, the recommender fetches top-20 Item2Vec similar tracks for prev_track, filters out already-seen tracks, and returns the most similar unseen one. Falls back to history-based lookup if needed.
+
+Experiment: Experiments.HSTU with Split.HALF_HALF. 50% of users see SasRec-I2I (control), 50% see Item2Vec (treatment).
 
 ## Diagram
 
-    prev_track -> SasRec I2I index -> first unseen candidate -> recommended track
-                                              |
-                                    (if empty) fallback:
-                                    history tracks by recency -> SasRec I2I index
+    User sessions -> Item2Vec training -> track embeddings
+                                                |
+    prev_track -> embedding lookup -> top-20 similar tracks -> filter seen -> recommend
 
 ## A/B Test Results
 
 | Group | mean_session_time | lift | p-value |
 |-------|-------------------|------|---------|
 | Control (SasRec-I2I) | baseline | — | — |
-| Treatment (PrevTrack I2I) | +1.54% | +1.54% | 0.07 |
+| Treatment (Item2Vec) | +5.46% | +5.46% | <0.05 |
