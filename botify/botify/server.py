@@ -17,8 +17,6 @@ from botify.recommenders.random import Random
 from botify.recommenders.indexed import Indexed
 from botify.recommenders.sticky_artist import StickyArtist
 from botify.recommenders.item2vec_agg import Item2VecAggRecommender
-from botify.recommenders.topk_random_i2i import TopKRandomI2I
-from botify.recommenders.prev_track_lightfm import PrevTrackLightFM
 from botify.track import Catalog
 
 root = logging.getLogger()
@@ -91,11 +89,6 @@ item2vec_agg_recommender = Item2VecAggRecommender(
     random_recommender,
 )
 
-topk_random_recommender = TopKRandomI2I(
-    listen_history_redis.connection,
-    recommendations_contextual_redis.connection,
-    random_recommender,
-)
 
 parser = reqparse.RequestParser()
 parser.add_argument("track", type=int, location="json", required=True)
