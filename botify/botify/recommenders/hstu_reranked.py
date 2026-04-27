@@ -3,6 +3,8 @@ import pickle
 
 from .recommender import Recommender
 
+HSTU_WEIGHT = 0.01
+
 
 class HSTUReranked(Recommender):
     def __init__(self, listen_history_redis, hstu_redis, sasrec_redis, catalog, fallback):
@@ -16,24 +18,35 @@ class HSTUReranked(Recommender):
         seen = self._get_seen_tracks(user)
         history = self._load_history(user)
 
+        if not history:
+            return self.fallback.recommend_next(user, prev_track, prev_track_time)
+
+        hstu_rank = {}
+        hstu_size = 0
         hstu_data = self.hstu_redis.get(user)
-        if hstu_data and history:
-            hstu_set = set(self.catalog.from_bytes(hstu_data))
-            best_track = None
-            best_score = -1
+        if hstu_data:
+            candidates = list(self.catalog.from_bytes(hstu_data))
+            hstu_size = len(candidates)
+            hstu_rank = {t: i for i, t in enumerate(candidates)}
 
-            for anchor, listen_time in history:
-                recs = self._get_recs(anchor)
-                n = len(recs)
-                for rank, track in enumerate(recs):
-                    if track in hstu_set and track not in seen:
-                        score = listen_time * (n - rank)
-                        if score > best_score:
-                            best_score = score
-                            best_track = track
+        best_track = None
+        best_score = -1.0
 
-            if best_track is not None:
-                return best_track
+        for anchor, listen_time in history:
+            recs = self._get_recs(anchor)
+            n = len(recs)
+            for rank, track in enumerate(recs):
+                if track in seen:
+                    continue
+                sasrec_score = listen_time * (n - rank)
+                hstu_bonus = HSTU_WEIGHT * (hstu_size - hstu_rank[track]) if track in hstu_rank else 0.0
+                score = sasrec_score + hstu_bonus
+                if score > best_score:
+                    best_score = score
+                    best_track = track
+
+        if best_track is not None:
+            return best_track
 
         return self.fallback.recommend_next(user, prev_track, prev_track_time)
 
