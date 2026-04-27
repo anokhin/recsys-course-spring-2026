@@ -21,11 +21,3 @@ flowchart LR
 
 ### Результаты A/B эксперимента
 
-В A/B-тесте контроль — SasRec-I2I, treatment — описанный выше HSTU context reranker. Целевая метрика — `mean_time_per_session`. На предварительном прогоне treatment статистически значимо выигрывает у контроля.
-
-| treatment | metric | effect_pct | lower_pct | upper_pct | control_mean | treatment_mean | significant |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| T1 | mean_time_per_session | 45.60 | 41.68 | 49.52 | 2.0514 | 2.9869 | True |
-| T1 | mean_tracks_per_session | 13.42 | 12.25 | 14.59 | 7.0469 | 7.9925 | True |
-| T1 | time | 45.62 | 40.79 | 50.25 | 30.9429 | 45.0273 | True |
-| T1 | sessions | 0.44 | -1.46 | 2.35 | 15.0268 | 15.0937 | False |
