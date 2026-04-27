@@ -14,6 +14,7 @@ class CatBoostRecommender(Recommender):
     def __init__(self, tracks_catalog, artists_catalog, users_catalog):
         self.tracks_catalog = tracks_catalog
         self.track_ids = list(range(len(tracks_catalog.tracks)))
+        self.epsilon = 0.15  # 15% случайных рекомендаций
         
         # Загружаем модель
         model_path = Path(__file__).parent.parent.parent / "models" / "cb_regressor.cbm"
@@ -37,10 +38,21 @@ class CatBoostRecommender(Recommender):
         print(f"[CatBoost] Загружено {len(self.track_ids)} треков")
 
     def recommend_next(self, user: int, prev_track: int, prev_track_time: float) -> int:
+        import random
+        
         # Сохраняем историю
         if prev_track >= 0:
             self.user_history[user].append(prev_track)
             self.user_rewards[user].append(prev_track_time)
+        
+        history = self.user_history[user]
+        
+        # === EPSILON-GREEDY EXPLORATION ===
+        if random.random() < self.epsilon:
+            candidates = [t for t in self.track_ids if t not in history]
+            if candidates:
+                return int(random.choice(candidates))
+            return int(random.choice(self.track_ids))
         
         history = self.user_history[user]
         rewards = self.user_rewards[user]

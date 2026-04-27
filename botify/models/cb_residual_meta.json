@@ -1,0 +1,17 @@
+{
+  "feature_names": [
+    "similarity",
+    "history_len",
+    "last_reward",
+    "position",
+    "user_norm",
+    "track_norm",
+    "diversity",
+    "avg_hist_sim",
+    "history_std",
+    "track_popularity",
+    "track_avg_reward"
+  ],
+  "rmse": 0.2092743169466862,
+  "global_avg": 0.42710483183314835
+}
