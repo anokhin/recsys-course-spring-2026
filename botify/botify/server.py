@@ -12,6 +12,7 @@ from gevent.pywsgi import WSGIServer
 
 from botify.data import DataLogger, Datum
 from botify.experiment import Experiments, Treatment
+from botify.recommenders.first_track_anchor import FirstTrackAnchorRecommender
 from botify.recommenders.i2i import I2IRecommender
 from botify.recommenders.random import Random
 from botify.recommenders.indexed import Indexed
@@ -74,6 +75,13 @@ sasrec_i2i_recommender = I2IRecommender(
     random_recommender,
 )
 
+first_track_anchor_recommender = FirstTrackAnchorRecommender(
+    listen_history_redis.connection,
+    recommendations_contextual_redis.connection,
+    random_recommender,
+    catalog,
+)
+
 parser = reqparse.RequestParser()
 parser.add_argument("track", type=int, location="json", required=True)
 parser.add_argument("time", type=float, location="json", required=True)
@@ -117,7 +125,7 @@ class NextTrack(Resource):
         if treatment == Treatment.C:
             recommender = sasrec_i2i_recommender
         elif treatment == Treatment.T1:
-            recommender = Indexed(recommendations_hstu_redis.connection, catalog, random_recommender)
+            recommender = first_track_anchor_recommender
         else:
             recommender = random_recommender
 
