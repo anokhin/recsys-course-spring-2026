@@ -16,6 +16,7 @@ from botify.recommenders.i2i import I2IRecommender
 from botify.recommenders.random import Random
 from botify.recommenders.indexed import Indexed
 from botify.recommenders.sticky_artist import StickyArtist
+from botify.recommenders.prev_track_lightfm import PrevTrackLightFM
 from botify.track import Catalog
 
 root = logging.getLogger()
@@ -71,6 +72,12 @@ catalog.upload_recommendations(
 sasrec_i2i_recommender = I2IRecommender(
     listen_history_redis.connection,
     recommendations_contextual_redis.connection,
+    random_recommender,
+)
+
+prev_track_lightfm_recommender = PrevTrackLightFM(
+    listen_history_redis.connection,
+    recommendations_lfm_redis.connection,
     random_recommender,
 )
 
