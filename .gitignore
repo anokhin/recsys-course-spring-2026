@@ -1,5 +1,6 @@
 .idea/
 sim/out/
+botify/data/content_i2i.jsonl
 __pycache__
 .ipynb_checkpoints
 botify/log/*
