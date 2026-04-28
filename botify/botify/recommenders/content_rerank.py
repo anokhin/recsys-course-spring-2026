@@ -16,6 +16,7 @@ class ContentRerankRecommender(Recommender):
     MIN_LISTEN_TIME = 0.10
     CANDIDATES_PER_ANCHOR = 10
     MAX_HISTORY_LEN = 50
+    MAX_ANCHORS = 8
     SKIP_PENALTY_THRESHOLD = 0.05
 
     def __init__(
@@ -41,6 +42,8 @@ class ContentRerankRecommender(Recommender):
             tid = int(tid_str)
             if 0 <= tid < n:
                 self.artist_by_track[tid] = artist or ""
+
+        self._i2i_cache: dict[int, list[int] | None] = {}
 
     def recommend_next(self, user: int, prev_track: int, prev_track_time: float) -> int:
         history = self._load_user_history(user)
@@ -114,17 +117,29 @@ class ContentRerankRecommender(Recommender):
 
     def _collect_candidates(self, history, seen_tracks):
         candidates: set[int] = set()
-        ordered = sorted(history, key=lambda x: x[1], reverse=True)
+        ordered = sorted(history, key=lambda x: x[1], reverse=True)[: self.MAX_ANCHORS]
         for track, _ in ordered:
-            data = self.i2i_redis.get(track)
-            if data is None:
+            recs = self._get_i2i(track)
+            if not recs:
                 continue
-            try:
-                recs = pickle.loads(data)
-            except Exception:
-                continue
-            for r in recs[: self.CANDIDATES_PER_ANCHOR]:
-                rid = int(r)
+            for rid in recs[: self.CANDIDATES_PER_ANCHOR]:
                 if rid not in seen_tracks:
                     candidates.add(rid)
         return candidates
+
+    def _get_i2i(self, track: int):
+        cached = self._i2i_cache.get(track)
+        if cached is not None:
+            return cached
+        data = self.i2i_redis.get(track)
+        if data is None:
+            self._i2i_cache[track] = []
+            return []
+        try:
+            recs = pickle.loads(data)
+        except Exception:
+            self._i2i_cache[track] = []
+            return []
+        recs_int = [int(r) for r in recs[: self.CANDIDATES_PER_ANCHOR]]
+        self._i2i_cache[track] = recs_int
+        return recs_int
