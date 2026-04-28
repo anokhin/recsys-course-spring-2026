@@ -29,5 +29,8 @@
   "TRACKS_CATALOG": "./data/tracks.json",
   "DATA_LOG_FILE": "./log/data.json",
   "DATA_LOG_FILE_MAX_BYTES": 104857600,
-  "DATA_LOG_FILE_BACKUP_COPIES": 10
+  "DATA_LOG_FILE_BACKUP_COPIES": 10,
+
+  "HYBRID_LGBM_RANKER_MODEL_PATH": "/app/hybrid_lgbm_ranker_model.txt",
+  "LOGISTIC_RERANKER_MODEL_PATH": "/app/logistic_reranker_model.json"
 }
