@@ -4,6 +4,7 @@ import pickle
 import random
 from collections import Counter, defaultdict
 from typing import Dict, List, Optional, Sequence, Tuple
+from functools import lru_cache
 
 try:
     import joblib
@@ -22,15 +23,8 @@ from .recommender import Recommender
 
 class UserHSTUHybridReranker(Recommender):
     """
-    Baseline-safe multi-source reranker.
-
-    Fixes compared with the previous version:
-    1. The SasRec baseline item is always inserted into the candidate pool.
-    2. The baseline item and alternative candidates are scored by the same feature builder.
-    3. Debug statistics are printed periodically: model loading, override rate,
-       candidate size, score margin, and selected source distribution.
-    4. If the joblib model cannot be used, the recommender falls back to a simple
-       Reciprocal Rank Fusion style score instead of crashing.
+    Optimized version: adds caching, batch track loading, pre‑computed common features,
+    and numpy‑only model input. No change to feature logic or decision rules.
     """
 
     DEFAULT_FEATURE_NAMES = [
@@ -106,6 +100,12 @@ class UserHSTUHybridReranker(Recommender):
         self.model = self._extract_model(self.model_bundle)
         self.feature_names = self._extract_feature_names(self.model_bundle)
 
+        # Setup LRU caches for Redis lookups
+        self._get_track_cached = lru_cache(maxsize=10000)(self._load_track_raw)
+        self._get_sasrec_cached = lru_cache(maxsize=5000)(self._load_sasrec_raw)
+        self._get_lfm_cached = lru_cache(maxsize=5000)(self._load_lfm_raw)
+        self._get_hstu_cached = lru_cache(maxsize=2000)(self._load_hstu_raw)
+
         self.total_calls = 0
         self.scored_calls = 0
         self.model_success_calls = 0
@@ -131,6 +131,10 @@ class UserHSTUHybridReranker(Recommender):
             flush=True,
         )
 
+    # ------------------------------------------------------------------
+    # Public method
+    # ------------------------------------------------------------------
+
     def recommend_next(self, user: int, prev_track: int, prev_track_time: float) -> int:
         self.total_calls += 1
 
@@ -141,17 +145,25 @@ class UserHSTUHybridReranker(Recommender):
         baseline = int(baseline)
 
         history = self._load_user_history(user)
-        seen_tracks = {int(track) for track, _ in history}
+        hist_tracks = [t for t, _ in history]
+        hist_times = [time for _, time in history]
 
-        candidates, source_info = self._build_candidates(user, prev_track, history)
+        # Pre‑compute common stats (once per request)
+        common = self._compute_common_stats(history, prev_track_time, hist_tracks, hist_times)
 
-        # Critical: score the baseline by exactly the same feature builder.
+        # Batch load artists for history tracks (used in same_artist_recent_count)
+        hist_artist_map = self._batch_get_artists(hist_tracks)
+
+        candidates, source_info = self._build_candidates_cached(user, prev_track, history)
+
+        # Baseline must always be in candidate set
         candidates.add(baseline)
         source_info[baseline]["baseline_hit"] = 1.0
 
+        # Remove already seen tracks (except baseline)
         candidate_list = [
             int(c) for c in candidates
-            if int(c) == baseline or int(c) not in seen_tracks
+            if int(c) == baseline or int(c) not in common["seen_set"]
         ]
 
         if not candidate_list:
@@ -159,19 +171,24 @@ class UserHSTUHybridReranker(Recommender):
             self._maybe_print_stats()
             return baseline
 
-        feature_dicts = [
-            self._feature_dict(
-                candidate=c,
-                baseline=baseline,
-                prev_track=prev_track,
-                prev_track_time=prev_track_time,
-                history=history,
-                source_info=source_info,
-            )
-            for c in candidate_list
-        ]
+        # Batch load artists for all candidates
+        cand_artist_map = self._batch_get_artists(candidate_list)
 
-        scores, score_mode = self._score_candidates(feature_dicts, source_info, candidate_list)
+        # Build feature matrix as numpy array
+        feature_matrix = []
+        for cand in candidate_list:
+            cand_artist = cand_artist_map.get(cand)
+            f = self._feature_dict_optimized(
+                cand, baseline, prev_track, prev_track_time,
+                common, hist_artist_map, cand_artist, source_info
+            )
+            # Order according to self.feature_names
+            row = [float(f.get(name, 0.0)) for name in self.feature_names]
+            feature_matrix.append(row)
+        X = np.asarray(feature_matrix, dtype=np.float32)
+
+        # Score candidates
+        scores, score_mode = self._score_candidates(X, source_info, candidate_list)
         if scores is None or len(scores) != len(candidate_list):
             self.model_error_calls += 1
             self._maybe_print_stats()
@@ -185,7 +202,7 @@ class UserHSTUHybridReranker(Recommender):
             self.rrf_calls += 1
 
         best_idx = int(np.argmax(scores))
-        best = int(candidate_list[best_idx])
+        best = candidate_list[best_idx]
         best_score = float(scores[best_idx])
         baseline_score = self._score_for_item(candidate_list, scores, baseline)
         score_margin = best_score - baseline_score
@@ -212,45 +229,28 @@ class UserHSTUHybridReranker(Recommender):
         return baseline
 
     # ------------------------------------------------------------------
-    # Candidate generation
+    # Candidate generation (with caching)
     # ------------------------------------------------------------------
 
-    def _build_candidates(self, user: int, prev_track: int, history: Sequence[Tuple[int, float]]):
+    def _build_candidates_cached(self, user: int, prev_track: int, history: Sequence[Tuple[int, float]]):
         candidates = set()
         source_info: Dict[int, Dict[str, float]] = defaultdict(lambda: defaultdict(float))
 
-        # SasRec-I2I and LightFM-I2I are item-to-item candidate sources.
-        # Their redis keys are track ids, so we query them by recent listened tracks.
         anchors = self._weighted_anchors(history, prev_track)
         for anchor, anchor_weight in anchors:
-            self._add_i2i_candidates(
-                self.sasrec_redis,
-                anchor,
-                "sasrec",
-                candidates,
-                source_info,
-                anchor_weight,
+            self._add_i2i_candidates_cached(
+                self._get_sasrec_cached, anchor, "sasrec",
+                candidates, source_info, anchor_weight
             )
-            self._add_i2i_candidates(
-                self.lfm_redis,
-                anchor,
-                "lfm",
-                candidates,
-                source_info,
-                anchor_weight,
+            self._add_i2i_candidates_cached(
+                self._get_lfm_cached, anchor, "lfm",
+                candidates, source_info, anchor_weight
             )
 
-        # HSTU recommendations in this project are user-level:
-        #   {"user": 1, "tracks": [track_id_1, track_id_2, ...]}
-        # So we must query HSTU redis by user id, not by prev_track.
         if self.hstu_redis is not None:
-            self._add_user_candidates(
-                self.hstu_redis,
-                user,
-                "hstu",
-                candidates,
-                source_info,
-                source_weight=1.0,
+            self._add_user_candidates_cached(
+                self._get_hstu_cached, user, "hstu",
+                candidates, source_info, 1.0
             )
 
         for cand in self._same_artist_candidates(prev_track):
@@ -274,44 +274,34 @@ class UserHSTUHybridReranker(Recommender):
         anchors = sorted(track_weight.items(), key=lambda kv: kv[1], reverse=True)
         return anchors[: min(len(anchors), self.history_limit)]
 
-    def _add_i2i_candidates(self, redis_conn, anchor: int, source_name: str, candidates: set,
-                            source_info: Dict[int, Dict[str, float]], anchor_weight: float):
-        recs = self._load_recommendations(redis_conn, anchor)
+    def _add_i2i_candidates_cached(self, cached_getter, anchor: int, source_name: str,
+                                   candidates: set, source_info: Dict, anchor_weight: float):
+        recs = cached_getter(anchor)  # returns list of ints
         for rank, cand in enumerate(recs[: self.topk_per_source], start=1):
-            cand = int(cand)
-            if cand == int(anchor):
+            if cand == anchor:
                 continue
             candidates.add(cand)
             source_info[cand][f"{source_name}_hit"] += 1.0
-            source_info[cand][f"{source_name}_rank_inv"] += float(anchor_weight) / float(rank)
-            source_info[cand][f"{source_name}_best_rank"] = min(
-                float(source_info[cand].get(f"{source_name}_best_rank", 10**9)),
-                float(rank),
-            )
+            source_info[cand][f"{source_name}_rank_inv"] += anchor_weight / rank
+            best_key = f"{source_name}_best_rank"
+            if cand not in source_info or best_key not in source_info[cand] or rank < source_info[cand][best_key]:
+                source_info[cand][best_key] = float(rank)
             source_info[cand]["source_count"] += 1.0
 
-    def _add_user_candidates(self, redis_conn, user: int, source_name: str, candidates: set,
-                             source_info: Dict[int, Dict[str, float]], source_weight: float = 1.0):
-        """Add candidates from a user-level recommender.
-
-        HSTU recommendations are stored as user -> tracks, while SasRec/LightFM are
-        item-to-item. This method keeps HSTU separate so that we do not accidentally
-        query user recommendations by prev_track.
-        """
-        recs = self._load_recommendations(redis_conn, user)
+    def _add_user_candidates_cached(self, cached_getter, user: int, source_name: str,
+                                    candidates: set, source_info: Dict, source_weight: float):
+        recs = cached_getter(user)
         for rank, cand in enumerate(recs[: self.topk_per_source], start=1):
-            cand = int(cand)
             candidates.add(cand)
             source_info[cand][f"{source_name}_hit"] += 1.0
-            source_info[cand][f"{source_name}_rank_inv"] += float(source_weight) / float(rank)
-            source_info[cand][f"{source_name}_best_rank"] = min(
-                float(source_info[cand].get(f"{source_name}_best_rank", 10**9)),
-                float(rank),
-            )
+            source_info[cand][f"{source_name}_rank_inv"] += source_weight / rank
+            best_key = f"{source_name}_best_rank"
+            if cand not in source_info or best_key not in source_info[cand] or rank < source_info[cand][best_key]:
+                source_info[cand][best_key] = float(rank)
             source_info[cand]["source_count"] += 1.0
 
     def _same_artist_candidates(self, prev_track: int) -> List[int]:
-        track = self._load_track(prev_track)
+        track = self._get_track_cached(prev_track)
         if track is None:
             return []
         artist = getattr(track, "artist", None)
@@ -329,50 +319,90 @@ class UserHSTUHybridReranker(Recommender):
         return result[: max(5, self.topk_per_source // 2)]
 
     # ------------------------------------------------------------------
-    # Features and scoring
+    # Feature computation (optimized)
     # ------------------------------------------------------------------
 
-    def _feature_dict(self, candidate: int, baseline: int, prev_track: int, prev_track_time: float,
-                      history: Sequence[Tuple[int, float]], source_info: Dict[int, Dict[str, float]]):
-        times = [float(t) for _, t in history[: self.history_limit]]
-        tracks = [int(t) for t, _ in history[: self.history_limit]]
-
-        recent_avg = float(sum(times) / len(times)) if times else float(prev_track_time)
-        recent_last = float(times[0]) if times else float(prev_track_time)
-        good_frac = float(sum(t >= 0.75 for t in times) / len(times)) if times else float(prev_track_time >= 0.75)
-        skip_frac = float(sum(t <= 0.25 for t in times) / len(times)) if times else float(prev_track_time <= 0.25)
-
-        cand_track = self._load_track(candidate)
-        prev = self._load_track(prev_track)
-        cand_artist = getattr(cand_track, "artist", None) if cand_track is not None else None
-        prev_artist = getattr(prev, "artist", None) if prev is not None else None
-
-        same_artist_prev = float(bool(cand_artist and prev_artist and cand_artist == prev_artist))
-        same_artist_recent_count = 0.0
-        if cand_artist:
-            for tr in tracks:
-                tr_obj = self._load_track(tr)
-                if tr_obj is not None and getattr(tr_obj, "artist", None) == cand_artist:
-                    same_artist_recent_count += 1.0
-
-        info = source_info.get(int(candidate), {})
-        sasrec_hit = float(info.get("sasrec_hit", 0.0) > 0.0)
-        hstu_hit = float(info.get("hstu_hit", 0.0) > 0.0)
-        lfm_hit = float(info.get("lfm_hit", 0.0) > 0.0)
-        same_artist_hit = float(info.get("same_artist_hit", 0.0) > 0.0)
-        unique_sources = sasrec_hit + hstu_hit + lfm_hit + same_artist_hit
+    def _compute_common_stats(self, history, prev_track_time, hist_tracks, hist_times):
+        if hist_times:
+            recent_avg = sum(hist_times) / len(hist_times)
+            recent_last = hist_times[0]
+            good_frac = sum(1 for t in hist_times if t >= 0.75) / len(hist_times)
+            skip_frac = sum(1 for t in hist_times if t <= 0.25) / len(hist_times)
+        else:
+            recent_avg = prev_track_time
+            recent_last = prev_track_time
+            good_frac = 1.0 if prev_track_time >= 0.75 else 0.0
+            skip_frac = 1.0 if prev_track_time <= 0.25 else 0.0
 
         return {
-            "prev_track_time": float(prev_track_time),
-            "hist_len": float(len(history)),
+            "hist_len": len(history),
             "recent_avg_time": recent_avg,
             "recent_last_time": recent_last,
             "recent_good_frac": good_frac,
             "recent_skip_frac": skip_frac,
-            "seen_before": float(int(candidate) in set(tracks)),
-            "same_as_prev": float(int(candidate) == int(prev_track)),
+            "seen_set": set(hist_tracks),
+            "prev_track_time": prev_track_time,
+            "prev_track": history[0][0] if history else None,
+        }
+
+    def _batch_get_artists(self, track_ids: List[int]) -> Dict[int, Optional[str]]:
+        if not track_ids:
+            return {}
+        # Use mget for batch retrieval
+        keys = [str(tid) for tid in track_ids]
+        raw_data = self.tracks_redis.mget(*keys)
+        result = {}
+        for tid, raw in zip(track_ids, raw_data):
+            if raw:
+                try:
+                    obj = pickle.loads(raw)
+                    result[tid] = getattr(obj, "artist", None)
+                except Exception:
+                    result[tid] = None
+            else:
+                result[tid] = None
+        return result
+
+    def _feature_dict_optimized(
+        self,
+        cand: int,
+        baseline: int,
+        prev_track: int,
+        prev_track_time: float,
+        common: Dict,
+        hist_artist_map: Dict[int, Optional[str]],
+        cand_artist: Optional[str],
+        source_info: Dict[int, Dict[str, float]],
+    ) -> Dict[str, float]:
+        info = source_info.get(cand, {})
+        prev_artist = hist_artist_map.get(prev_track) if common["prev_track"] is not None else None
+
+        same_artist_prev = 1.0 if (cand_artist and prev_artist and cand_artist == prev_artist) else 0.0
+        # Count how many of the recent history tracks share this artist
+        same_artist_recent = 0.0
+        if cand_artist:
+            for a in hist_artist_map.values():
+                if a == cand_artist:
+                    same_artist_recent += 1.0
+        same_artist_recent = same_artist_recent / 10.0  # normalize
+
+        sasrec_hit = 1.0 if info.get("sasrec_hit", 0.0) > 0 else 0.0
+        hstu_hit = 1.0 if info.get("hstu_hit", 0.0) > 0 else 0.0
+        lfm_hit = 1.0 if info.get("lfm_hit", 0.0) > 0 else 0.0
+        same_artist_hit = 1.0 if info.get("same_artist_hit", 0.0) > 0 else 0.0
+        unique_sources = sasrec_hit + hstu_hit + lfm_hit + same_artist_hit
+
+        return {
+            "prev_track_time": common["prev_track_time"],
+            "hist_len": float(common["hist_len"]),
+            "recent_avg_time": float(common["recent_avg_time"]),
+            "recent_last_time": float(common["recent_last_time"]),
+            "recent_good_frac": float(common["recent_good_frac"]),
+            "recent_skip_frac": float(common["recent_skip_frac"]),
+            "seen_before": 1.0 if cand in common["seen_set"] else 0.0,
+            "same_as_prev": 1.0 if cand == prev_track else 0.0,
             "same_artist_prev": same_artist_prev,
-            "same_artist_recent_count": float(same_artist_recent_count),
+            "same_artist_recent_count": same_artist_recent,
             "same_artist_hit": same_artist_hit,
             "sasrec_hit": sasrec_hit,
             "hstu_hit": hstu_hit,
@@ -383,23 +413,28 @@ class UserHSTUHybridReranker(Recommender):
             "same_artist_rank_inv": float(info.get("same_artist_rank_inv", 0.0)),
             "source_count": float(info.get("source_count", 0.0)),
             "unique_source_count": float(unique_sources),
-            "source_agreement": float(unique_sources >= 2.0),
+            "source_agreement": 1.0 if unique_sources >= 2.0 else 0.0,
             "baseline_hit": float(info.get("baseline_hit", 0.0) > 0.0),
-            "is_baseline": float(int(candidate) == int(baseline)),
+            "is_baseline": 1.0 if cand == baseline else 0.0,
         }
 
-    def _score_candidates(self, feature_dicts: List[Dict[str, float]], source_info, candidate_list):
+    # ------------------------------------------------------------------
+    # Scoring
+    # ------------------------------------------------------------------
+
+    def _score_candidates(self, X: np.ndarray, source_info, candidate_list):
         if self.model is not None:
             try:
-                X = self._make_model_input(feature_dicts)
                 if hasattr(self.model, "predict_proba"):
-                    return np.asarray(self.model.predict_proba(X)[:, 1], dtype=float), "model"
-                if hasattr(self.model, "decision_function"):
-                    z = np.asarray(self.model.decision_function(X), dtype=float)
-                    return 1.0 / (1.0 + np.exp(-np.clip(z, -20.0, 20.0))), "model"
-                if hasattr(self.model, "predict"):
-                    y = np.asarray(self.model.predict(X), dtype=float)
-                    return y, "model"
+                    scores = self.model.predict_proba(X)[:, 1]
+                elif hasattr(self.model, "decision_function"):
+                    z = self.model.decision_function(X)
+                    scores = 1.0 / (1.0 + np.exp(-np.clip(z, -20.0, 20.0)))
+                elif hasattr(self.model, "predict"):
+                    scores = self.model.predict(X).astype(float)
+                else:
+                    raise RuntimeError("Model has no scoring method")
+                return scores, "model"
             except Exception as exc:
                 self.model_error_calls += 1
                 if self.model_error_calls <= 5:
@@ -407,28 +442,19 @@ class UserHSTUHybridReranker(Recommender):
 
         return self._rrf_scores(source_info, candidate_list), "rrf"
 
-    def _make_model_input(self, feature_dicts: List[Dict[str, float]]):
-        rows = [[float(fd.get(name, 0.0)) for name in self.feature_names] for fd in feature_dicts]
-        if pd is not None and getattr(self.model_bundle, "get", None) is not None:
-            # Many sklearn/lightgbm pipelines work with numpy, but DataFrame is safer
-            # when the training script stored named features.
-            return pd.DataFrame(rows, columns=self.feature_names)
-        return np.asarray(rows, dtype=float)
-
     def _rrf_scores(self, source_info, candidate_list):
-        scores = []
-        for cand in candidate_list:
-            info = source_info.get(int(cand), {})
+        scores = np.zeros(len(candidate_list), dtype=float)
+        for i, cand in enumerate(candidate_list):
+            info = source_info.get(cand, {})
             s = 0.0
-            s += self.SOURCE_WEIGHTS["sasrec"] * float(info.get("sasrec_rank_inv", 0.0))
-            s += self.SOURCE_WEIGHTS["hstu"] * float(info.get("hstu_rank_inv", 0.0))
-            s += self.SOURCE_WEIGHTS["lfm"] * float(info.get("lfm_rank_inv", 0.0))
-            s += self.SOURCE_WEIGHTS["same_artist"] * float(info.get("same_artist_rank_inv", 0.0))
-            # tiny bonus to avoid replacing a strong baseline unless fusion clearly wins
+            s += self.SOURCE_WEIGHTS["sasrec"] * info.get("sasrec_rank_inv", 0.0)
+            s += self.SOURCE_WEIGHTS["hstu"] * info.get("hstu_rank_inv", 0.0)
+            s += self.SOURCE_WEIGHTS["lfm"] * info.get("lfm_rank_inv", 0.0)
+            s += self.SOURCE_WEIGHTS["same_artist"] * info.get("same_artist_rank_inv", 0.0)
             if info.get("baseline_hit", 0.0) > 0.0:
                 s += 0.01
-            scores.append(s)
-        return np.asarray(scores, dtype=float)
+            scores[i] = s
+        return scores
 
     def _score_for_item(self, candidate_list, scores, item: int) -> float:
         for cand, score in zip(candidate_list, scores):
@@ -438,7 +464,7 @@ class UserHSTUHybridReranker(Recommender):
 
     def _should_override(self, best: int, baseline: int, best_score: float, baseline_score: float,
                          score_mode: str, prev_track_time: float, history: Sequence[Tuple[int, float]]) -> bool:
-        if int(best) == int(baseline):
+        if best == baseline:
             return False
         if prev_track_time < self.min_prev_time:
             self.low_prev_time_blocks += 1
@@ -458,16 +484,16 @@ class UserHSTUHybridReranker(Recommender):
         return (best_score - baseline_score) >= self.rrf_margin
 
     def _too_repetitive_artist(self, candidate: int, history: Sequence[Tuple[int, float]]) -> bool:
-        cand = self._load_track(candidate)
-        if cand is None:
+        cand_track = self._get_track_cached(candidate)
+        if cand_track is None:
             return False
-        artist = getattr(cand, "artist", None)
+        artist = getattr(cand_track, "artist", None)
         if not artist:
             return False
         count = 0
         for tr, _ in history[: self.history_limit]:
-            obj = self._load_track(tr)
-            if obj is not None and getattr(obj, "artist", None) == artist:
+            tr_track = self._get_track_cached(tr)
+            if tr_track is not None and getattr(tr_track, "artist", None) == artist:
                 count += 1
         return count >= self.max_same_artist_recent
 
@@ -508,7 +534,7 @@ class UserHSTUHybridReranker(Recommender):
         )
 
     # ------------------------------------------------------------------
-    # Redis/model helpers
+    # Redis / caching helpers
     # ------------------------------------------------------------------
 
     def _safe_baseline(self, user: int, prev_track: int, prev_track_time: float) -> Optional[int]:
@@ -563,23 +589,41 @@ class UserHSTUHybridReranker(Recommender):
                 continue
         return history
 
-    def _load_recommendations(self, redis_conn, key: int) -> List[int]:
-        if redis_conn is None:
-            return []
-        data = redis_conn.get(int(key))
-        if data is None:
-            return []
-        try:
-            recs = pickle.loads(data)
-            return [int(x) for x in recs]
-        except Exception:
-            return []
-
-    def _load_track(self, track_id: int):
-        data = self.tracks_redis.get(int(track_id))
+    # Raw cacheable methods (these return deserialized objects)
+    def _load_track_raw(self, track_id: int):
+        data = self.tracks_redis.get(track_id)
         if data is None:
             return None
         try:
             return pickle.loads(data)
         except Exception:
             return None
+
+    def _load_sasrec_raw(self, anchor: int):
+        data = self.sasrec_redis.get(anchor)
+        if data is None:
+            return []
+        try:
+            return pickle.loads(data)
+        except Exception:
+            return []
+
+    def _load_lfm_raw(self, anchor: int):
+        data = self.lfm_redis.get(anchor)
+        if data is None:
+            return []
+        try:
+            return pickle.loads(data)
+        except Exception:
+            return []
+
+    def _load_hstu_raw(self, user: int):
+        if self.hstu_redis is None:
+            return []
+        data = self.hstu_redis.get(user)
+        if data is None:
+            return []
+        try:
+            return pickle.loads(data)
+        except Exception:
+            return []

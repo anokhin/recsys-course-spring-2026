@@ -424,7 +424,14 @@ def main():
         if prev_track is not None:
             add_source_candidates(source_info, candidates, sasrec.get(prev_track, []), "sasrec", args.top_k, anchor=prev_track)
             add_source_candidates(source_info, candidates, lfm.get(prev_track, []), "lfm", args.top_k, anchor=prev_track)
-            # same_artist candidates disabled in CI-fast version for speed.
+            add_same_artist_candidates(
+                source_info,
+                candidates,
+                prev_track,
+                track_to_artist,
+                artist_to_tracks,
+                args.top_k,
+            )
         else:
             skipped_no_history += 1
 
@@ -540,21 +547,21 @@ def main():
 
     if HAS_LGBM:
         clf = LGBMClassifier(
-            n_estimators=50,
-            learning_rate=0.06,
+            n_estimators=80,
+            learning_rate=0.05,
             num_leaves=15,
-            max_depth=4,
-            subsample=0.85,
-            colsample_bytree=0.85,
+            max_depth=5,
+            subsample=0.8,
+            colsample_bytree=0.8,
             class_weight="balanced",
             random_state=args.seed,
             n_jobs=-1,
-            min_child_samples=100,
+            min_child_samples=20,
         )
     else:
         clf = HistGradientBoostingClassifier(
             max_iter=250,
-            learning_rate=0.05,
+            learning_rate=0.035,
             random_state=args.seed,
         )
 
