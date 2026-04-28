@@ -1,4 +1,4 @@
-FROM python:3.7-slim-buster
+FROM python:3.9-slim-buster  
 
 WORKDIR /app
 
@@ -9,13 +9,14 @@ RUN sed -i 's|http://deb.debian.org/debian|http://archive.debian.org/debian|g' /
     && apt-get install -y --no-install-recommends libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
 
-RUN pip install -r requirements.txt
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
 COPY botify ./botify
 COPY data ./data
-COPY logistic_reranker_model.json ./logistic_reranker_model.json
+
+COPY reranker_lgb.joblib ./reranker_lgb.joblib
 
 RUN mkdir -p ./log
 
