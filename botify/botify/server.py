@@ -12,7 +12,7 @@ from gevent.pywsgi import WSGIServer
 
 from botify.data import DataLogger, Datum
 from botify.experiment import Experiments, Treatment
-from botify.botify.recommenders.artist_various_recomender import ArtistVariousRecommender
+from botify.recommenders.artist_various_recomender import ArtistVariousRecommender
 from botify.recommenders.i2i import I2IRecommender
 from botify.recommenders.random import Random
 from botify.recommenders.indexed import Indexed
