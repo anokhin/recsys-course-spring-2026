@@ -21,6 +21,17 @@ from .recommender import Recommender
 
 
 class UserHSTUHybridReranker(Recommender):
+    """
+    Baseline-safe multi-source reranker.
+
+    Fixes compared with the previous version:
+    1. The SasRec baseline item is always inserted into the candidate pool.
+    2. The baseline item and alternative candidates are scored by the same feature builder.
+    3. Debug statistics are printed periodically: model loading, override rate,
+       candidate size, score margin, and selected source distribution.
+    4. If the joblib model cannot be used, the recommender falls back to a simple
+       Reciprocal Rank Fusion style score instead of crashing.
+    """
 
     DEFAULT_FEATURE_NAMES = [
         "prev_track_time",
@@ -134,6 +145,7 @@ class UserHSTUHybridReranker(Recommender):
 
         candidates, source_info = self._build_candidates(user, prev_track, history)
 
+        # Critical: score the baseline by exactly the same feature builder.
         candidates.add(baseline)
         source_info[baseline]["baseline_hit"] = 1.0
 
@@ -199,11 +211,16 @@ class UserHSTUHybridReranker(Recommender):
         self._maybe_print_stats()
         return baseline
 
+    # ------------------------------------------------------------------
+    # Candidate generation
+    # ------------------------------------------------------------------
+
     def _build_candidates(self, user: int, prev_track: int, history: Sequence[Tuple[int, float]]):
         candidates = set()
         source_info: Dict[int, Dict[str, float]] = defaultdict(lambda: defaultdict(float))
 
-        # SasRec-I2I and LightFM-I2I 
+        # SasRec-I2I and LightFM-I2I are item-to-item candidate sources.
+        # Their redis keys are track ids, so we query them by recent listened tracks.
         anchors = self._weighted_anchors(history, prev_track)
         for anchor, anchor_weight in anchors:
             self._add_i2i_candidates(
@@ -223,7 +240,9 @@ class UserHSTUHybridReranker(Recommender):
                 anchor_weight,
             )
 
-        # HSTU 
+        # HSTU recommendations in this project are user-level:
+        #   {"user": 1, "tracks": [track_id_1, track_id_2, ...]}
+        # So we must query HSTU redis by user id, not by prev_track.
         if self.hstu_redis is not None:
             self._add_user_candidates(
                 self.hstu_redis,
@@ -273,6 +292,12 @@ class UserHSTUHybridReranker(Recommender):
 
     def _add_user_candidates(self, redis_conn, user: int, source_name: str, candidates: set,
                              source_info: Dict[int, Dict[str, float]], source_weight: float = 1.0):
+        """Add candidates from a user-level recommender.
+
+        HSTU recommendations are stored as user -> tracks, while SasRec/LightFM are
+        item-to-item. This method keeps HSTU separate so that we do not accidentally
+        query user recommendations by prev_track.
+        """
         recs = self._load_recommendations(redis_conn, user)
         for rank, cand in enumerate(recs[: self.topk_per_source], start=1):
             cand = int(cand)
@@ -302,6 +327,10 @@ class UserHSTUHybridReranker(Recommender):
         result = [int(t) for t in tracks if int(t) != int(prev_track)]
         random.shuffle(result)
         return result[: max(5, self.topk_per_source // 2)]
+
+    # ------------------------------------------------------------------
+    # Features and scoring
+    # ------------------------------------------------------------------
 
     def _feature_dict(self, candidate: int, baseline: int, prev_track: int, prev_track_time: float,
                       history: Sequence[Tuple[int, float]], source_info: Dict[int, Dict[str, float]]):
@@ -381,6 +410,8 @@ class UserHSTUHybridReranker(Recommender):
     def _make_model_input(self, feature_dicts: List[Dict[str, float]]):
         rows = [[float(fd.get(name, 0.0)) for name in self.feature_names] for fd in feature_dicts]
         if pd is not None and getattr(self.model_bundle, "get", None) is not None:
+            # Many sklearn/lightgbm pipelines work with numpy, but DataFrame is safer
+            # when the training script stored named features.
             return pd.DataFrame(rows, columns=self.feature_names)
         return np.asarray(rows, dtype=float)
 
@@ -393,6 +424,7 @@ class UserHSTUHybridReranker(Recommender):
             s += self.SOURCE_WEIGHTS["hstu"] * float(info.get("hstu_rank_inv", 0.0))
             s += self.SOURCE_WEIGHTS["lfm"] * float(info.get("lfm_rank_inv", 0.0))
             s += self.SOURCE_WEIGHTS["same_artist"] * float(info.get("same_artist_rank_inv", 0.0))
+            # tiny bonus to avoid replacing a strong baseline unless fusion clearly wins
             if info.get("baseline_hit", 0.0) > 0.0:
                 s += 0.01
             scores.append(s)
@@ -422,7 +454,7 @@ class UserHSTUHybridReranker(Recommender):
                 return False
             return True
 
-        # RRF scores
+        # RRF scores are not probabilities, so only use a relative margin.
         return (best_score - baseline_score) >= self.rrf_margin
 
     def _too_repetitive_artist(self, candidate: int, history: Sequence[Tuple[int, float]]) -> bool:
@@ -447,6 +479,10 @@ class UserHSTUHybridReranker(Recommender):
                 parts.append(name)
         return "+".join(parts) if parts else "unknown"
 
+    # ------------------------------------------------------------------
+    # Debug stats
+    # ------------------------------------------------------------------
+
     def _maybe_print_stats(self):
         if self.debug_every <= 0 or self.total_calls % self.debug_every != 0:
             return
@@ -470,6 +506,10 @@ class UserHSTUHybridReranker(Recommender):
             "selected_sources=", dict(self.selected_sources.most_common(8)),
             flush=True,
         )
+
+    # ------------------------------------------------------------------
+    # Redis/model helpers
+    # ------------------------------------------------------------------
 
     def _safe_baseline(self, user: int, prev_track: int, prev_track_time: float) -> Optional[int]:
         try:

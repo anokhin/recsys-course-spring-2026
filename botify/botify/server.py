@@ -66,6 +66,9 @@ sasrec_i2i_recommender = I2IRecommender(
     random_recommender,
 )
 
+# HSTU file is user-level:
+#   {"user": 1, "tracks": [track_id_1, track_id_2, ...]}
+# Therefore it must be uploaded by user id, not by item_id.
 catalog.upload_recommendations(
     recommendations_hstu_redis.connection,
     "RECOMMENDATIONS_HSTU_FILE_PATH",
@@ -83,11 +86,13 @@ user_hstu_hybrid_reranker_recommender = UserHSTUHybridReranker(
     baseline_recommender=sasrec_i2i_recommender,
     fallback_recommender=random_recommender,
     model_path=app.config.get("HYBRID_RERANKER_MODEL_PATH", "./reranker_lgb.joblib"),
-    topk_per_source=20,
-    history_limit=10,
+    topk_per_source=8,
+    history_limit=4,
+    # First diagnostic run: moderately conservative. If override_rate is too low/high,
+    # adjust these three constants only.
     min_prev_time=0.55,
     abs_threshold=0.0,
-    margin=0.0001,
+    margin=0.0005,
     rrf_margin=0.006,
     max_same_artist_recent=3,
     debug_every=1000,
