@@ -5,10 +5,14 @@ import atexit
 from dataclasses import asdict
 from datetime import datetime
 
+from collections import Counter
+
 from flask import Flask
 from flask_redis import Redis
 from flask_restful import Resource, Api, abort, reqparse
 from gevent.pywsgi import WSGIServer
+
+from botify.recommenders.myrec import MyRec
 
 from botify.data import DataLogger, Datum
 from botify.experiment import Experiments, Treatment
@@ -33,12 +37,25 @@ recommendations_contextual_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIO
 
 recommendations_hstu_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_HSTU")
 
+
+recommendations_myrec_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_MYREC")
+
+
 data_logger = DataLogger(app)
 atexit.register(data_logger.close)
 
 catalog = Catalog(app).load(app.config["TRACKS_CATALOG"])
 catalog.upload_tracks(tracks_redis.connection)
 catalog.upload_artists(artists_redis.connection)
+
+
+track_counts = Counter()
+with open(app.config["TRACKS_CATALOG"]) as f:
+    for line in f:
+        track_id = int(json.loads(line)["track"])
+        track_counts[track_id] += 1
+
+popular_tracks_list = [t for t, _ in track_counts.most_common()]
 
 random_recommender = Random(tracks_redis.connection)
 sticky_artist_recommender = StickyArtist(tracks_redis, artists_redis, catalog)
@@ -62,6 +79,15 @@ catalog.upload_recommendations(
     key_recommendations="recommendations",
 )
 
+
+catalog.upload_recommendations(
+    recommendations_myrec_redis.connection,
+    "RECOMMENDATIONS_MYREC_FILE_PATH",
+    key_object="item_id",
+    key_recommendations="recommendations",
+)
+
+
 catalog.upload_recommendations(
     recommendations_hstu_redis.connection,
     "RECOMMENDATIONS_HSTU_FILE_PATH"
@@ -73,6 +99,20 @@ sasrec_i2i_recommender = I2IRecommender(
     recommendations_contextual_redis.connection,
     random_recommender,
 )
+
+
+myrec_recommender = MyRec(
+    listen_history_redis.connection,
+    recommendations_myrec_redis.connection,
+    random_recommender
+)
+
+# myrec_recommender = I2IRecommender(
+#     listen_history_redis=listen_history_redis.connection,
+#     i2i_redis=recommendations_myrec_redis.connection,
+#     fallback_recommender=random_recommender,
+# )
+
 
 parser = reqparse.RequestParser()
 parser.add_argument("track", type=int, location="json", required=True)
@@ -112,12 +152,21 @@ class NextTrack(Resource):
         args = parser.parse_args()
         persist_user_listen_history(user, args.track, args.time)
 
-        treatment = Experiments.HSTU.assign(user)
+        # treatment = Experiments.I_WANNA_DATA.assign(user)
+
+        # if treatment == Treatment.C:
+        #     recommender = sasrec_i2i_recommender
+        # elif treatment == Treatment.T1:
+        #     recommender = lightfm_i2i_recommender
+        # elif treatment == Treatment.T2:
+        #     recommender = random_recommender
+
+        treatment = Experiments.MYREC.assign(user)
 
         if treatment == Treatment.C:
             recommender = sasrec_i2i_recommender
         elif treatment == Treatment.T1:
-            recommender = Indexed(recommendations_hstu_redis.connection, catalog, random_recommender)
+            recommender = myrec_recommender
         else:
             recommender = random_recommender
 
