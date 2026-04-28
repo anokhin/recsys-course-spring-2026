@@ -15,8 +15,6 @@ RUN pip install -r requirements.txt
 
 COPY botify ./botify
 COPY data ./data
-COPY hybrid_lgbm_ranker_model.txt ./hybrid_lgbm_ranker_model.txt
-COPY hybrid_lgbm_ranker_model.json ./hybrid_lgbm_ranker_model.json
 COPY logistic_reranker_model.json ./logistic_reranker_model.json
 
 RUN mkdir -p ./log
