@@ -66,7 +66,8 @@ contextual_ranker = ContextualRanker(
     recommendations_contextual_redis.connection, 
     TRACKS_DATA, 
     random_recommender,
-    catalog
+    catalog,
+    listen_history_redis
 )
 
 parser = reqparse.RequestParser()
