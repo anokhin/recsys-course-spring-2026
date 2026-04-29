@@ -22,10 +22,8 @@ from .recommender import Recommender
 
 
 class UserHSTUHybridReranker(Recommender):
-    """
-    Optimized version: adds caching, batch track loading, pre‑computed common features,
-    and numpy‑only model input. No change to feature logic or decision rules.
-    """
+    # 全局 fallback track id（使用一个大概率存在的 ID，例如 5444，若为 0 可能无效）
+    FALLBACK_TRACK_ID = 5444   # 修改为真实存在的 track id，可根据实际情况调整
 
     DEFAULT_FEATURE_NAMES = [
         "prev_track_time",
@@ -132,97 +130,98 @@ class UserHSTUHybridReranker(Recommender):
         )
 
     def recommend_next(self, user: int, prev_track: int, prev_track_time: float) -> int:
-        self.total_calls += 1
+        try:
+            self.total_calls += 1
 
-        baseline = self._safe_baseline(user, prev_track, prev_track_time)
-        if baseline is None:
-            self._maybe_print_stats()
-            return self.fallback_recommender.recommend_next(user, prev_track, prev_track_time)
-        baseline = int(baseline)
+            # 获取 baseline，确保不为 None
+            baseline = self._safe_baseline(user, prev_track, prev_track_time)
+            if baseline is None:
+                baseline = self.FALLBACK_TRACK_ID
+                print(f"[WARN] baseline is None, using fallback {baseline}", flush=True)
+            baseline = int(baseline)
 
-        history = self._load_user_history(user)
-        hist_tracks = [t for t, _ in history]
-        hist_times = [time for _, time in history]
+            history = self._load_user_history(user)
+            hist_tracks = [t for t, _ in history]
+            hist_times = [time for _, time in history]
 
+            common = self._compute_common_stats(history, prev_track_time, hist_tracks, hist_times)
 
-        common = self._compute_common_stats(history, prev_track_time, hist_tracks, hist_times)
+            hist_artist_map = self._batch_get_artists(hist_tracks)
 
- 
-        hist_artist_map = self._batch_get_artists(hist_tracks)
+            candidates, source_info = self._build_candidates_cached(user, prev_track, history)
 
-        candidates, source_info = self._build_candidates_cached(user, prev_track, history)
+            candidates.add(baseline)
+            source_info[baseline]["baseline_hit"] = 1.0
 
+            candidate_list = [
+                int(c) for c in candidates
+                if int(c) == baseline or int(c) not in common["seen_set"]
+            ]
 
-        candidates.add(baseline)
-        source_info[baseline]["baseline_hit"] = 1.0
+            if not candidate_list:
+                self.no_candidate_calls += 1
+                self._maybe_print_stats()
+                return baseline
 
+            cand_artist_map = self._batch_get_artists(candidate_list)
 
-        candidate_list = [
-            int(c) for c in candidates
-            if int(c) == baseline or int(c) not in common["seen_set"]
-        ]
+            feature_matrix = []
+            for cand in candidate_list:
+                cand_artist = cand_artist_map.get(cand)
+                f = self._feature_dict_optimized(
+                    cand, baseline, prev_track, prev_track_time,
+                    common, hist_artist_map, cand_artist, source_info
+                )
+                row = [float(f.get(name, 0.0)) for name in self.feature_names]
+                feature_matrix.append(row)
+            X = np.asarray(feature_matrix, dtype=np.float32)
 
-        if not candidate_list:
-            self.no_candidate_calls += 1
+            scores, score_mode = self._score_candidates(X, source_info, candidate_list)
+            if scores is None or len(scores) != len(candidate_list):
+                self.model_error_calls += 1
+                self._maybe_print_stats()
+                return baseline
+
+            self.scored_calls += 1
+            self.candidate_size_sum += len(candidate_list)
+            if score_mode == "model":
+                self.model_success_calls += 1
+            else:
+                self.rrf_calls += 1
+
+            best_idx = int(np.argmax(scores))
+            best = candidate_list[best_idx]
+            best_score = float(scores[best_idx])
+            baseline_score = self._score_for_item(candidate_list, scores, baseline)
+            score_margin = best_score - baseline_score
+
+            self.best_score_sum += best_score
+            self.baseline_score_sum += baseline_score
+            self.margin_sum += score_margin
+
+            if self._should_override(
+                best=best,
+                baseline=baseline,
+                best_score=best_score,
+                baseline_score=baseline_score,
+                score_mode=score_mode,
+                prev_track_time=prev_track_time,
+                history=history,
+            ):
+                self.override_calls += 1
+                self.selected_sources.update([self._source_signature(best, source_info)])
+                self._maybe_print_stats()
+                return best
+
             self._maybe_print_stats()
             return baseline
 
-
-        cand_artist_map = self._batch_get_artists(candidate_list)
-
-
-        feature_matrix = []
-        for cand in candidate_list:
-            cand_artist = cand_artist_map.get(cand)
-            f = self._feature_dict_optimized(
-                cand, baseline, prev_track, prev_track_time,
-                common, hist_artist_map, cand_artist, source_info
-            )
-
-            row = [float(f.get(name, 0.0)) for name in self.feature_names]
-            feature_matrix.append(row)
-        X = np.asarray(feature_matrix, dtype=np.float32)
-
-
-        scores, score_mode = self._score_candidates(X, source_info, candidate_list)
-        if scores is None or len(scores) != len(candidate_list):
-            self.model_error_calls += 1
-            self._maybe_print_stats()
-            return baseline
-
-        self.scored_calls += 1
-        self.candidate_size_sum += len(candidate_list)
-        if score_mode == "model":
-            self.model_success_calls += 1
-        else:
-            self.rrf_calls += 1
-
-        best_idx = int(np.argmax(scores))
-        best = candidate_list[best_idx]
-        best_score = float(scores[best_idx])
-        baseline_score = self._score_for_item(candidate_list, scores, baseline)
-        score_margin = best_score - baseline_score
-
-        self.best_score_sum += best_score
-        self.baseline_score_sum += baseline_score
-        self.margin_sum += score_margin
-
-        if self._should_override(
-            best=best,
-            baseline=baseline,
-            best_score=best_score,
-            baseline_score=baseline_score,
-            score_mode=score_mode,
-            prev_track_time=prev_track_time,
-            history=history,
-        ):
-            self.override_calls += 1
-            self.selected_sources.update([self._source_signature(best, source_info)])
-            self._maybe_print_stats()
-            return best
-
-        self._maybe_print_stats()
-        return baseline
+        except Exception as e:
+            # 任何未捕获的异常都返回 fallback，并打印错误
+            import traceback
+            traceback.print_exc()
+            print(f"[FATAL] recommend_next crashed: {e}, returning fallback {self.FALLBACK_TRACK_ID}", flush=True)
+            return self.FALLBACK_TRACK_ID
 
     def _build_candidates_cached(self, user: int, prev_track: int, history: Sequence[Tuple[int, float]]):
         candidates = set()
@@ -246,6 +245,8 @@ class UserHSTUHybridReranker(Recommender):
             )
 
         for cand in self._same_artist_candidates(prev_track):
+            if cand is None:
+                continue
             cand = int(cand)
             candidates.add(cand)
             source_info[cand]["same_artist_hit"] += 1.0
@@ -270,7 +271,7 @@ class UserHSTUHybridReranker(Recommender):
                                    candidates: set, source_info: Dict, anchor_weight: float):
         recs = cached_getter(anchor)  # returns list of ints
         for rank, cand in enumerate(recs[: self.topk_per_source], start=1):
-            if cand == anchor:
+            if cand is None or cand == anchor:
                 continue
             candidates.add(cand)
             source_info[cand][f"{source_name}_hit"] += 1.0
@@ -284,6 +285,8 @@ class UserHSTUHybridReranker(Recommender):
                                     candidates: set, source_info: Dict, source_weight: float):
         recs = cached_getter(user)
         for rank, cand in enumerate(recs[: self.topk_per_source], start=1):
+            if cand is None:
+                continue
             candidates.add(cand)
             source_info[cand][f"{source_name}_hit"] += 1.0
             source_info[cand][f"{source_name}_rank_inv"] += source_weight / rank
@@ -336,7 +339,6 @@ class UserHSTUHybridReranker(Recommender):
     def _batch_get_artists(self, track_ids: List[int]) -> Dict[int, Optional[str]]:
         if not track_ids:
             return {}
-        # Use mget for batch retrieval
         keys = [str(tid) for tid in track_ids]
         raw_data = self.tracks_redis.mget(*keys)
         result = {}
@@ -366,13 +368,12 @@ class UserHSTUHybridReranker(Recommender):
         prev_artist = hist_artist_map.get(prev_track) if common["prev_track"] is not None else None
 
         same_artist_prev = 1.0 if (cand_artist and prev_artist and cand_artist == prev_artist) else 0.0
-        # Count how many of the recent history tracks share this artist
         same_artist_recent = 0.0
         if cand_artist:
             for a in hist_artist_map.values():
                 if a == cand_artist:
                     same_artist_recent += 1.0
-        same_artist_recent = same_artist_recent / 10.0  # normalize
+        same_artist_recent = same_artist_recent / 10.0
 
         sasrec_hit = 1.0 if info.get("sasrec_hit", 0.0) > 0 else 0.0
         hstu_hit = 1.0 if info.get("hstu_hit", 0.0) > 0 else 0.0
@@ -464,7 +465,6 @@ class UserHSTUHybridReranker(Recommender):
                 return False
             return True
 
-        # RRF scores are not probabilities, so only use a relative margin.
         return (best_score - baseline_score) >= self.rrf_margin
 
     def _too_repetitive_artist(self, candidate: int, history: Sequence[Tuple[int, float]]) -> bool:
@@ -514,6 +514,7 @@ class UserHSTUHybridReranker(Recommender):
         )
 
     def _safe_baseline(self, user: int, prev_track: int, prev_track_time: float) -> Optional[int]:
+        """返回 baseline，可能为 None"""
         try:
             rec = self.baseline_recommender.recommend_next(user, prev_track, prev_track_time)
             return int(rec) if rec is not None else None
@@ -565,7 +566,6 @@ class UserHSTUHybridReranker(Recommender):
                 continue
         return history
 
-    # Raw cacheable methods (these return deserialized objects)
     def _load_track_raw(self, track_id: int):
         data = self.tracks_redis.get(track_id)
         if data is None:
