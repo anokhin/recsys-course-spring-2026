@@ -131,10 +131,6 @@ class UserHSTUHybridReranker(Recommender):
             flush=True,
         )
 
-    # ------------------------------------------------------------------
-    # Public method
-    # ------------------------------------------------------------------
-
     def recommend_next(self, user: int, prev_track: int, prev_track_time: float) -> int:
         self.total_calls += 1
 
@@ -148,19 +144,19 @@ class UserHSTUHybridReranker(Recommender):
         hist_tracks = [t for t, _ in history]
         hist_times = [time for _, time in history]
 
-        # Pre‑compute common stats (once per request)
+
         common = self._compute_common_stats(history, prev_track_time, hist_tracks, hist_times)
 
-        # Batch load artists for history tracks (used in same_artist_recent_count)
+ 
         hist_artist_map = self._batch_get_artists(hist_tracks)
 
         candidates, source_info = self._build_candidates_cached(user, prev_track, history)
 
-        # Baseline must always be in candidate set
+
         candidates.add(baseline)
         source_info[baseline]["baseline_hit"] = 1.0
 
-        # Remove already seen tracks (except baseline)
+
         candidate_list = [
             int(c) for c in candidates
             if int(c) == baseline or int(c) not in common["seen_set"]
@@ -171,10 +167,10 @@ class UserHSTUHybridReranker(Recommender):
             self._maybe_print_stats()
             return baseline
 
-        # Batch load artists for all candidates
+
         cand_artist_map = self._batch_get_artists(candidate_list)
 
-        # Build feature matrix as numpy array
+
         feature_matrix = []
         for cand in candidate_list:
             cand_artist = cand_artist_map.get(cand)
@@ -182,12 +178,12 @@ class UserHSTUHybridReranker(Recommender):
                 cand, baseline, prev_track, prev_track_time,
                 common, hist_artist_map, cand_artist, source_info
             )
-            # Order according to self.feature_names
+
             row = [float(f.get(name, 0.0)) for name in self.feature_names]
             feature_matrix.append(row)
         X = np.asarray(feature_matrix, dtype=np.float32)
 
-        # Score candidates
+
         scores, score_mode = self._score_candidates(X, source_info, candidate_list)
         if scores is None or len(scores) != len(candidate_list):
             self.model_error_calls += 1
@@ -227,10 +223,6 @@ class UserHSTUHybridReranker(Recommender):
 
         self._maybe_print_stats()
         return baseline
-
-    # ------------------------------------------------------------------
-    # Candidate generation (with caching)
-    # ------------------------------------------------------------------
 
     def _build_candidates_cached(self, user: int, prev_track: int, history: Sequence[Tuple[int, float]]):
         candidates = set()
@@ -317,10 +309,6 @@ class UserHSTUHybridReranker(Recommender):
         result = [int(t) for t in tracks if int(t) != int(prev_track)]
         random.shuffle(result)
         return result[: max(5, self.topk_per_source // 2)]
-
-    # ------------------------------------------------------------------
-    # Feature computation (optimized)
-    # ------------------------------------------------------------------
 
     def _compute_common_stats(self, history, prev_track_time, hist_tracks, hist_times):
         if hist_times:
@@ -418,10 +406,6 @@ class UserHSTUHybridReranker(Recommender):
             "is_baseline": 1.0 if cand == baseline else 0.0,
         }
 
-    # ------------------------------------------------------------------
-    # Scoring
-    # ------------------------------------------------------------------
-
     def _score_candidates(self, X: np.ndarray, source_info, candidate_list):
         if self.model is not None:
             try:
@@ -505,10 +489,6 @@ class UserHSTUHybridReranker(Recommender):
                 parts.append(name)
         return "+".join(parts) if parts else "unknown"
 
-    # ------------------------------------------------------------------
-    # Debug stats
-    # ------------------------------------------------------------------
-
     def _maybe_print_stats(self):
         if self.debug_every <= 0 or self.total_calls % self.debug_every != 0:
             return
@@ -532,10 +512,6 @@ class UserHSTUHybridReranker(Recommender):
             "selected_sources=", dict(self.selected_sources.most_common(8)),
             flush=True,
         )
-
-    # ------------------------------------------------------------------
-    # Redis / caching helpers
-    # ------------------------------------------------------------------
 
     def _safe_baseline(self, user: int, prev_track: int, prev_track_time: float) -> Optional[int]:
         try:

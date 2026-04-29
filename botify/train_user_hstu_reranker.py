@@ -19,7 +19,6 @@ from sklearn.metrics import roc_auc_score, log_loss
 from sklearn.model_selection import train_test_split
 
 
-# 24 online-available features. No answer leakage features are included.
 FEATURE_NAMES = [
     "prev_track_time",
     "hist_len",
@@ -223,7 +222,6 @@ def extract_event(event: dict):
     consumed_track = _to_int(event.get("track") or event.get("track_id") or event.get("item_id"))
     recommendation = _to_int(event.get("recommendation") or event.get("recommended") or event.get("recommended_track"))
 
-    # If the log has no separate recommendation field, the exposed item is the consumed/logged track.
     if recommendation is None:
         recommendation = consumed_track
 
@@ -266,7 +264,6 @@ def add_same_artist_candidates(
         return
 
     recs = [t for t in artist_to_tracks.get(artist, []) if int(t) != int(prev_track)]
-    # Stable deterministic order. This is enough to align feature presence; no future info.
     recs = recs[:top_k]
     add_source_candidates(source_info, candidates, recs, "same_artist", top_k, weight=1.0, anchor=prev_track)
 
@@ -280,25 +277,28 @@ def build_features(
     source_info: Dict[int, Dict[str, float]],
     baseline_source: Dict[str, float],
     track_to_artist: Dict[int, str],
+    history_limit: int,
 ):
     info = source_info.get(cand, {})
 
     hist_len = len(user_history)
-    times = [float(x[1]) for x in user_history[-10:]]
+    # Use only the most recent `history_limit` entries
+    recent_history = user_history[-history_limit:] if history_limit > 0 else []
+    times = [float(x[1]) for x in recent_history]
     hist_avg = float(np.mean(times)) if times else 0.0
     hist_last = float(times[-1]) if times else 0.0
-
-    # Keep thresholds consistent with earlier implementation, but they are only descriptive features.
     hist_good_frac = float(np.mean([x >= 0.75 for x in times])) if times else 0.0
     hist_skip_frac = float(np.mean([x <= 0.30 for x in times])) if times else 0.0
 
     cand_artist = track_to_artist.get(cand)
     prev_artist = track_to_artist.get(prev_track) if prev_track is not None else None
-    recent_artists = [track_to_artist.get(t) for t, _ in user_history[-10:]]
+    recent_artists = [track_to_artist.get(t) for t, _ in recent_history]
 
     same_artist_prev = 1.0 if cand_artist is not None and cand_artist == prev_artist else 0.0
     artist_recent_count = float(sum(1 for a in recent_artists if a is not None and a == cand_artist))
-    candidate_in_recent_history = 1.0 if cand in {t for t, _ in user_history[-10:]} else 0.0
+    candidate_in_recent_history = 1.0 if cand in {t for t, _ in recent_history} else 0.0
+
+    artist_recent_count_norm = artist_recent_count / 10.0
 
     sas_inv = float(info.get("sasrec_rank_inv", 0.0))
     lfm_inv = float(info.get("lfm_rank_inv", 0.0))
@@ -341,7 +341,7 @@ def build_features(
         rank_norm("hstu"),
 
         same_artist_prev,
-        artist_recent_count / 10.0,
+        artist_recent_count_norm,
         candidate_in_recent_history,
 
         float(info.get("source_count", 0.0)) - float(baseline_source.get("source_count", 0.0)),
@@ -361,6 +361,8 @@ def main():
     ap.add_argument("--lfm-path", default="./data/lightfm_i2i.jsonl")
     ap.add_argument("--use-only-control", action="store_true")
     ap.add_argument("--top-k", type=int, default=20)
+    ap.add_argument("--history-limit", type=int, default=10,
+                    help="Number of recent user interactions to use for features (must match online service).")
     ap.add_argument("--max-negatives-per-event", type=int, default=10)
     ap.add_argument("--positive-threshold", type=float, default=0.75)
     ap.add_argument("--negative-threshold", type=float, default=0.30)
@@ -413,8 +415,6 @@ def main():
 
         user_hist = histories[user]
 
-        # Important: no future information.
-        # If the user has no history, there is no prev_track for item-to-item sources.
         prev_track = user_hist[-1][0] if user_hist else None
         prev_time = user_hist[-1][1] if user_hist else 0.0
 
@@ -447,16 +447,14 @@ def main():
         is_bad = float(t) <= args.negative_threshold
 
         if is_good:
-            # Good event: exposed baseline is positive; other strong candidates are hard negatives.
             X.append(build_features(
                 baseline_item, baseline_item, prev_track, prev_time, user_hist,
-                source_info, baseline_source, track_to_artist
+                source_info, baseline_source, track_to_artist, args.history_limit
             ))
             y.append(1)
             positive_events += 1
 
             negs = [c for c in candidates if int(c) != int(baseline_item)]
-            # Mix hard negatives and random negatives to reduce sampling bias.
             hard = sorted(negs, key=lambda c: source_info[c].get("source_count", 0.0), reverse=True)
             hard = hard[: max(1, args.max_negatives_per_event // 2)]
             rest = [c for c in negs if c not in set(hard)]
@@ -466,36 +464,35 @@ def main():
             for c in sampled:
                 X.append(build_features(
                     c, baseline_item, prev_track, prev_time, user_hist,
-                    source_info, baseline_source, track_to_artist
+                    source_info, baseline_source, track_to_artist, args.history_limit
                 ))
                 y.append(0)
                 negative_samples += 1
 
         elif is_bad:
-            # Bad event: exposed baseline is a real negative in this context.
+            # Bad event: exposed baseline is a real negative.
             X.append(build_features(
                 baseline_item, baseline_item, prev_track, prev_time, user_hist,
-                source_info, baseline_source, track_to_artist
+                source_info, baseline_source, track_to_artist, args.history_limit
             ))
             y.append(0)
             bad_events += 1
 
-            # Add only a few extra weak negatives to avoid overwhelming the data.
             negs = [c for c in candidates if int(c) != int(baseline_item)]
             random.shuffle(negs)
             for c in negs[: max(1, args.max_negatives_per_event // 4)]:
                 X.append(build_features(
                     c, baseline_item, prev_track, prev_time, user_hist,
-                    source_info, baseline_source, track_to_artist
+                    source_info, baseline_source, track_to_artist, args.history_limit
                 ))
                 y.append(0)
                 negative_samples += 1
 
-        # Middle events are ambiguous; use them only for history, not labels.
-
+        # Update history: keep only the last `history_limit` entries to match online behavior.
         user_hist.append((consumed_track, float(t)))
-        if len(user_hist) > 50:
-            del user_hist[:-50]
+        if len(user_hist) > args.history_limit:
+            # Remove oldest entries (keep latest args.history_limit)
+            del user_hist[:len(user_hist) - args.history_limit]
 
         events_used += 1
 
@@ -515,6 +512,7 @@ def main():
     if len(set(y.tolist())) < 2:
         raise RuntimeError("Need both positive and negative samples.")
 
+    # Split data
     if args.split_mode == "time":
         split = int(len(y) * (1.0 - args.val_size))
         split = max(1, min(len(y) - 1, split))
@@ -545,6 +543,7 @@ def main():
         print(f"Train positive ratio: {float(y_train.mean()):.6f}")
         print(f"Val positive ratio: {float(y_val.mean()):.6f}")
 
+    # LightGBM 
     if HAS_LGBM:
         clf = LGBMClassifier(
             n_estimators=80,
@@ -560,8 +559,8 @@ def main():
         )
     else:
         clf = HistGradientBoostingClassifier(
-            max_iter=250,
-            learning_rate=0.035,
+            max_iter=100,
+            learning_rate=0.08,
             random_state=args.seed,
         )
 
@@ -640,6 +639,7 @@ def main():
         "feature_count": len(FEATURE_NAMES),
         "hstu_mode": "user_to_tracks",
         "top_k": args.top_k,
+        "history_limit": args.history_limit,   # store to allow online service validation
         "positive_threshold": args.positive_threshold,
         "negative_threshold": args.negative_threshold,
     }
