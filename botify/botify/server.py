@@ -65,9 +65,9 @@ sasrec_i2i_recommender = I2IRecommender(
 contextual_ranker = ContextualRanker(
     recommendations_contextual_redis.connection, 
     TRACKS_DATA, 
-    random_recommender
+    random_recommender,
+    catalog
 )
-contextual_ranker.catalog = catalog
 
 parser = reqparse.RequestParser()
 parser.add_argument("track", type=int, location="json", required=True)
