@@ -1,12 +1,20 @@
 .idea/
 sim/out/
+sim/data/*.npy
+sim/data/embeddings.npy
+sim/data/tracks.json
+sim/data/users.json
 __pycache__
 .ipynb_checkpoints
 botify/log/*
 botify/data/*.json
 !botify/data/tracks.json
 .DS_Store
-
+results.json
+.venv/
+venv/
+botify/botify/recommenders/train.csv
+botify/botify/recommenders/test.csv
 # LaTeX
 *.aux
 *.glo

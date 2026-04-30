@@ -6,4 +6,10 @@ class Random(Recommender):
         self.track_redis = track_redis
 
     def recommend_next(self, user: int, prev_track: int, prev_track_time: float) -> int:
-        return int(self.track_redis.randomkey())
+        try:
+            key = self.track_redis.randomkey()
+            if key is not None:
+                return int(key)
+        except (TypeError, ValueError):
+            pass
+        return 0

@@ -1,15 +1,17 @@
+import redis as redis_lib
+import os
 import json
 import logging
 import time
 import atexit
 from dataclasses import asdict
 from datetime import datetime
-
+from botify.recommenders.hybrid_recommender import HybridRecommender
 from flask import Flask
 from flask_redis import Redis
 from flask_restful import Resource, Api, abort, reqparse
 from gevent.pywsgi import WSGIServer
-
+from typing import Union
 from botify.data import DataLogger, Datum
 from botify.experiment import Experiments, Treatment
 from botify.recommenders.i2i import I2IRecommender
@@ -28,10 +30,13 @@ api = Api(app)
 tracks_redis = Redis(app, config_prefix="REDIS_TRACKS")
 artists_redis = Redis(app, config_prefix="REDIS_ARTIST")
 listen_history_redis = Redis(app, config_prefix="REDIS_LISTEN_HISTORY")
-recommendations_lfm_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_LFM")
-recommendations_contextual_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_SASREC")
+recommendations_lfm_redis = Redis(
+    app, config_prefix="REDIS_RECOMMENDATIONS_LFM")
+recommendations_contextual_redis = Redis(
+    app, config_prefix="REDIS_RECOMMENDATIONS_SASREC")
 
-recommendations_hstu_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_HSTU")
+recommendations_hstu_redis = Redis(
+    app, config_prefix="REDIS_RECOMMENDATIONS_HSTU")
 
 data_logger = DataLogger(app)
 atexit.register(data_logger.close)
@@ -67,11 +72,25 @@ catalog.upload_recommendations(
     "RECOMMENDATIONS_HSTU_FILE_PATH"
 )
 
+sasrec_redis_conn = redis_lib.Redis(
+    host=app.config.get("REDIS_RECOMMENDATIONS_SASREC_HOST", "redis"),
+    port=app.config.get("REDIS_RECOMMENDATIONS_SASREC_PORT", 6379),
+    db=4
+)
 
 sasrec_i2i_recommender = I2IRecommender(
     listen_history_redis.connection,
-    recommendations_contextual_redis.connection,
+    sasrec_redis_conn,
     random_recommender,
+)
+
+hybrid_recommender = HybridRecommender(
+    listen_history_redis.connection,
+    recommendations_lfm_redis.connection,
+    recommendations_hstu_redis.connection,
+    random_recommender,
+    tracks_meta_path=os.path.join(
+        os.path.dirname(__file__), "../data/tracks.json")
 )
 
 parser = reqparse.RequestParser()
@@ -85,7 +104,8 @@ def persist_user_listen_history(user: int, track: int, track_time: float):
     user_history_key = f"user:{user}:listens"
     history_entry = json.dumps({"track": track, "time": track_time})
     listen_history_redis.connection.lpush(user_history_key, history_entry)
-    listen_history_redis.connection.ltrim(user_history_key, 0, LISTEN_HISTORY_LIMIT - 1)
+    listen_history_redis.connection.ltrim(
+        user_history_key, 0, LISTEN_HISTORY_LIMIT - 1)
 
 
 class Hello(Resource):
@@ -114,14 +134,29 @@ class NextTrack(Resource):
 
         treatment = Experiments.HSTU.assign(user)
 
+        recommender: Union[I2IRecommender,
+                           HybridRecommender, Random]
         if treatment == Treatment.C:
             recommender = sasrec_i2i_recommender
         elif treatment == Treatment.T1:
-            recommender = Indexed(recommendations_hstu_redis.connection, catalog, random_recommender)
+            recommender = hybrid_recommender
         else:
             recommender = random_recommender
 
-        recommendation = recommender.recommend_next(user, args.track, args.time)
+        try:
+            recommendation = recommender.recommend_next(
+                user, args.track, args.time)
+
+            if recommendation is None:
+                app.logger.warning(
+                    f"Recommender {recommender} returned None for user {user}, using random fallback")
+                recommendation = random_recommender.recommend_next(
+                    user, args.track, args.time)
+                if recommendation is None:
+                    recommendation = 0
+        except Exception as e:
+            app.logger.error(f"Error in recommender {recommender}: {e}")
+            recommendation = 0
 
         data_logger.log(
             "next",

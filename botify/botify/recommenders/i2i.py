@@ -34,7 +34,11 @@ class I2IRecommender(Recommender):
                 anchors.pop(anchor_idx)
                 weights.pop(anchor_idx)
 
-        return self.fallback_recommender.recommend_next(user, prev_track, prev_track_time)
+        rec = self.fallback_recommender.recommend_next(
+            user, prev_track, prev_track_time)
+        if rec is None or not isinstance(rec, int):
+            return 0
+        return rec
 
     def _load_user_history(self, user: int):
         key = f"user:{user}:listens"
