@@ -46,7 +46,8 @@ class HybridRecommender(Recommender):
 
         if tracks_meta_path is None:
             tracks_meta_path = os.path.abspath(
-                os.path.join(os.path.dirname(__file__), "../../../data/tracks.json")
+                os.path.join(os.path.dirname(__file__),
+                             "../../../data/tracks.json")
             )
         self.tracks_meta_path = tracks_meta_path
         self.tracks_meta: Dict[int, dict] = {}
@@ -87,7 +88,8 @@ class HybridRecommender(Recommender):
             meta = {}
 
         self.tracks_meta = meta
-        self.all_track_ids = sorted(meta.keys()) if meta else list(range(16200))
+        self.all_track_ids = sorted(
+            meta.keys()) if meta else list(range(16200))
         self.default_track_id = self.all_track_ids[0] if self.all_track_ids else 0
 
     def _load_user_history(self, user: int) -> List[Tuple[int, float]]:
@@ -103,7 +105,8 @@ class HybridRecommender(Recommender):
 
     def _safe_fallback(self, user: int, prev_track: int, prev_track_time: float) -> int:
         try:
-            rec = self.fallback_recommender.recommend_next(user, prev_track, prev_track_time)
+            rec = self.fallback_recommender.recommend_next(
+                user, prev_track, prev_track_time)
             if rec is not None and isinstance(rec, int) and rec >= 0:
                 return rec
         except Exception:
@@ -169,9 +172,11 @@ class HybridRecommender(Recommender):
         last_tracks = [t for t, _ in history[:10]]
         last_times = [tm for _, tm in history[:10]]
 
-        feats["ctx:mean_time_10"] = float(sum(last_times) / max(1, len(last_times)))
+        feats["ctx:mean_time_10"] = float(
+            sum(last_times) / max(1, len(last_times)))
         feats["ctx:skips_10"] = float(sum(1 for x in last_times if x < 0.3))
-        feats["ctx:long_listens_10"] = float(sum(1 for x in last_times if x > 0.9))
+        feats["ctx:long_listens_10"] = float(
+            sum(1 for x in last_times if x > 0.9))
 
         moods = []
         artist_ids = []
@@ -215,7 +220,8 @@ class HybridRecommender(Recommender):
                 )
             for g in (meta.get("genres") or [])[:5]:
                 if ctx.get(f"ctx:genre_top={g}", 0.0) > 0:
-                    feats["cross:genre_overlap"] = feats.get("cross:genre_overlap", 0.0) + 1.0
+                    feats["cross:genre_overlap"] = feats.get(
+                        "cross:genre_overlap", 0.0) + 1.0
         return feats
 
     def _hashed(self, feats: Dict[str, float]) -> List[Tuple[int, float]]:
@@ -306,7 +312,8 @@ class HybridRecommender(Recommender):
         candidates: List[int] = []
 
         candidates.extend(self._candidate_tracks_from_hstu(user, seen_tracks))
-        candidates.extend(self._candidate_tracks_from_lightfm_i2i(history, seen_tracks))
+        candidates.extend(
+            self._candidate_tracks_from_lightfm_i2i(history, seen_tracks))
 
         while len(candidates) < min(self.n_candidates, 200):
             tid = self.rng.choice(self.all_track_ids)
@@ -325,8 +332,10 @@ class HybridRecommender(Recommender):
 
     def _try_learn_from_previous(self, user: int, prev_track: int, prev_track_time: float) -> None:
         try:
-            last_rec = self.listen_history_redis.get(self._LAST_REC_KEY.format(user=user))
-            last_x = self.listen_history_redis.get(self._LAST_X_KEY.format(user=user))
+            last_rec = self.listen_history_redis.get(
+                self._LAST_REC_KEY.format(user=user))
+            last_x = self.listen_history_redis.get(
+                self._LAST_X_KEY.format(user=user))
             if last_rec is None or last_x is None:
                 return
             if isinstance(last_rec, bytes):
@@ -354,8 +363,10 @@ class HybridRecommender(Recommender):
             if self.rng.random() < self.exploration_eps:
                 chosen = self.rng.choice(candidates)
                 x = self._pair_features(ctx, chosen)
-                self.listen_history_redis.set(self._LAST_REC_KEY.format(user=user), str(int(chosen)))
-                self.listen_history_redis.set(self._LAST_X_KEY.format(user=user), pickle.dumps(x))
+                self.listen_history_redis.set(
+                    self._LAST_REC_KEY.format(user=user), str(int(chosen)))
+                self.listen_history_redis.set(
+                    self._LAST_X_KEY.format(user=user), pickle.dumps(x))
                 return int(chosen)
 
             x_dicts = [self._pair_features(ctx, t) for t in candidates]
@@ -368,8 +379,10 @@ class HybridRecommender(Recommender):
             chosen = int(candidates[best_idx])
 
             x = x_dicts[best_idx]
-            self.listen_history_redis.set(self._LAST_REC_KEY.format(user=user), str(chosen))
-            self.listen_history_redis.set(self._LAST_X_KEY.format(user=user), pickle.dumps(x))
+            self.listen_history_redis.set(
+                self._LAST_REC_KEY.format(user=user), str(chosen))
+            self.listen_history_redis.set(
+                self._LAST_X_KEY.format(user=user), pickle.dumps(x))
             return chosen
         except Exception:
             return self._safe_fallback(user, prev_track, prev_track_time)
