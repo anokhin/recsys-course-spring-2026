@@ -12,13 +12,6 @@ from .recommender import Recommender
 
 
 class HybridRecommender(Recommender):
-    """
-    ML-рекомендер (онлайн learning-to-rank / contextual bandit).
-
-    В отличие от "эвристик поверх SasRec-I2I", здесь ранжирование кандидатов
-    происходит предсказательной моделью (SGDRegressor) по признакам (user context + item).
-    Обучение идёт онлайн по факту прослушивания трека, который был рекомендован ранее.
-    """
 
     _LAST_REC_KEY = "ml:last_rec:{user}"
     _LAST_X_KEY = "ml:last_x:{user}"
