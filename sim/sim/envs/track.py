@@ -14,8 +14,8 @@ class TrackCatalog:
         track_meta = pd.read_json(config.tracks_path, lines=True).sort_values(
             "track"
         )
-        # Check that meta is consistent with embeddings
-        assert np.array_equal(track_meta["track"].values, np.arange(self.size()))
+        assert np.array_equal(
+            track_meta["track"].values, np.arange(self.size()))
         self.track_artists = track_meta["artist"].values
 
     def build_track_index(self) -> faiss.Index:
