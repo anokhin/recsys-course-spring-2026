@@ -42,38 +42,38 @@ data_logger = DataLogger(app)
 atexit.register(data_logger.close)
 
 catalog = Catalog(app).load(app.config["TRACKS_CATALOG"])
-# catalog.upload_tracks(tracks_redis.connection)
-# catalog.upload_artists(artists_redis.connection)
+catalog.upload_tracks(tracks_redis.connection)
+catalog.upload_artists(artists_redis.connection)
 
 random_recommender = Random(tracks_redis.connection)
 sticky_artist_recommender = StickyArtist(tracks_redis, artists_redis, catalog)
 
-# catalog.upload_recommendations(
-#     recommendations_lfm_redis.connection,
-#     "RECOMMENDATIONS_LFM_FILE_PATH",
-#     key_object="item_id",
-#     key_recommendations="recommendations",
-# )
+catalog.upload_recommendations(
+    recommendations_lfm_redis.connection,
+    "RECOMMENDATIONS_LFM_FILE_PATH",
+    key_object="item_id",
+    key_recommendations="recommendations",
+)
 lightfm_i2i_recommender = I2IRecommender(
     listen_history_redis.connection,
     recommendations_lfm_redis.connection,
     random_recommender,
 )
 
-# catalog.upload_recommendations(
-#     recommendations_contextual_redis.connection,
-#     "RECOMMENDATIONS_SASREC_FILE_PATH",
-#     key_object="item_id",
-#     key_recommendations="recommendations",
-# )
+catalog.upload_recommendations(
+    recommendations_contextual_redis.connection,
+    "RECOMMENDATIONS_SASREC_FILE_PATH",
+    key_object="item_id",
+    key_recommendations="recommendations",
+)
 
-# catalog.upload_recommendations(
-#     recommendations_hstu_redis.connection,
-#     "RECOMMENDATIONS_HSTU_FILE_PATH"
-# )
+catalog.upload_recommendations(
+    recommendations_hstu_redis.connection,
+    "RECOMMENDATIONS_HSTU_FILE_PATH"
+)
 
 sasrec_redis_conn = redis_lib.Redis(
-    host=app.config.get("REDIS_RECOMMENDATIONS_SASREC_HOST", "localhost"),
+    host=app.config.get("REDIS_RECOMMENDATIONS_SASREC_HOST", "redis"),
     port=app.config.get("REDIS_RECOMMENDATIONS_SASREC_PORT", 6379),
     db=4
 )
