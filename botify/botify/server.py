@@ -50,7 +50,7 @@ sticky_artist_recommender = StickyArtist(tracks_redis, artists_redis, catalog)
 
 catalog.upload_recommendations(
     recommendations_lfm_redis.connection,
-    "RECOMMENDATIONS_LFM_FILE_PATH",
+    app.config["RECOMMENDATIONS_LFM_FILE_PATH"],
     key_object="item_id",
     key_recommendations="recommendations",
 )
@@ -62,14 +62,14 @@ lightfm_i2i_recommender = I2IRecommender(
 
 catalog.upload_recommendations(
     recommendations_contextual_redis.connection,
-    "RECOMMENDATIONS_SASREC_FILE_PATH",
+    app.config["RECOMMENDATIONS_SASREC_FILE_PATH"],
     key_object="item_id",
     key_recommendations="recommendations",
 )
 
 catalog.upload_recommendations(
     recommendations_hstu_redis.connection,
-    "RECOMMENDATIONS_HSTU_FILE_PATH"
+    app.config["RECOMMENDATIONS_HSTU_FILE_PATH"],
 )
 
 sasrec_redis_conn = redis_lib.Redis(
