@@ -22,7 +22,7 @@ class I2IRecommender(Recommender):
                 track_time[track] += listened_time
 
             anchors = list(track_time.keys())
-            weights = [track_time[track] for track in anchors]
+            weights = [max(track_time[track], 0.001) for track in anchors]
 
             while anchors:
                 anchor = random.choices(anchors, weights=weights, k=1)[0]
