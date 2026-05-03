@@ -10,8 +10,8 @@ class Contextual(Recommender):
         self.i2i_recommender = i2i_recommender
         self.fallback = fallback
 
-        self.w = 3.0
-        self.b = -1.0
+        self.w = -5.0
+        self.b = 2.5
         
         self.user_history = {}
 
@@ -24,7 +24,7 @@ class Contextual(Recommender):
         
         self.user_history[user].append(prev_track)
         
-        if len(self.user_history[user]) > 50:
+        if len(self.user_history[user]) > 20:
             self.user_history[user].pop(0)
 
         score = self.w * prev_track_time + self.b
@@ -32,7 +32,6 @@ class Contextual(Recommender):
         use_i2i = random.random() < p_i2i
 
         final_track = None
-        hstu_track = None
 
         if not use_i2i:
             recommendations = self.hstu_redis.get(user)
@@ -47,13 +46,11 @@ class Contextual(Recommender):
                         filtered = [int(t) for t in hstu_tracks if int(t) not in self.user_history[user]]
 
                         if filtered:
-                            hstu_track = filtered[0] 
+                            final_track = filtered[0] 
                 except Exception:
                     pass
 
-        if hstu_track is not None:
-            final_track = hstu_track
-        else:
+        if final_track is None:
             final_track = self.i2i_recommender.recommend_next(user, prev_track, prev_track_time)
             
         self.user_history[user].append(final_track)
