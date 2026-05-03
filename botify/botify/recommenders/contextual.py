@@ -1,6 +1,6 @@
 import json
 import random
-import logging
+import math
 from .recommender import Recommender
 
 class Contextual(Recommender):
@@ -10,26 +10,52 @@ class Contextual(Recommender):
         self.i2i_recommender = i2i_recommender
         self.fallback = fallback
 
-    def recommend_next(self, user: int, prev_track: int, prev_track_time: float) -> int:
-        if prev_track_time >= 0.55:
-            return self.i2i_recommender.recommend_next(user, prev_track, prev_track_time)
-
-        try:
-            recommendations = self.hstu_redis.get(user)
-            if recommendations:
-                # Декодируем байты и парсим JSON
-                hstu_tracks = json.loads(recommendations)
-                
-                if isinstance(hstu_tracks, list) and hstu_tracks:
-                    top_tracks = hstu_tracks[:15]
-                    
-                    # Убираем текущий трек
-                    if prev_track in top_tracks:
-                        top_tracks.remove(prev_track)
-                    
-                    if top_tracks:
-                        return random.choice(top_tracks)
-        except Exception as e:
-            pass
+        self.w = 3.0
+        self.b = -1.0
         
-        return self.fallback.recommend_next(user, prev_track, prev_track_time)
+        self.user_history = {}
+
+    def sigmoid(self, x):
+        return 1 / (1 + math.exp(-x))
+
+    def recommend_next(self, user: int, prev_track: int, prev_track_time: float) -> int:
+        if user not in self.user_history:
+            self.user_history[user] = []
+        
+        self.user_history[user].append(prev_track)
+        
+        if len(self.user_history[user]) > 50:
+            self.user_history[user].pop(0)
+
+        score = self.w * prev_track_time + self.b
+        p_i2i = self.sigmoid(score)
+        use_i2i = random.random() < p_i2i
+
+        final_track = None
+        hstu_track = None
+
+        if not use_i2i:
+            recommendations = self.hstu_redis.get(user)
+            if recommendations is not None:
+                try:
+                    if isinstance(recommendations, bytes):
+                        recommendations = recommendations.decode("utf-8")
+
+                    hstu_tracks = json.loads(recommendations)
+
+                    if hstu_tracks:
+                        filtered = [int(t) for t in hstu_tracks if int(t) not in self.user_history[user]]
+
+                        if filtered:
+                            hstu_track = filtered[0] 
+                except Exception:
+                    pass
+
+        if hstu_track is not None:
+            final_track = hstu_track
+        else:
+            final_track = self.i2i_recommender.recommend_next(user, prev_track, prev_track_time)
+            
+        self.user_history[user].append(final_track)
+
+        return final_track
