@@ -4,7 +4,7 @@ import time
 import atexit
 from dataclasses import asdict
 from datetime import datetime
-
+from botify.recommenders.contextual import Contextual
 from flask import Flask
 from flask_redis import Redis
 from flask_restful import Resource, Api, abort, reqparse
@@ -74,6 +74,13 @@ sasrec_i2i_recommender = I2IRecommender(
     random_recommender,
 )
 
+contextual_recommender = Contextual(
+    hstu_redis=recommendations_hstu_redis.connection, 
+    catalog=catalog, 
+    i2i_recommender=sasrec_i2i_recommender, 
+    fallback=random_recommender
+)
+
 parser = reqparse.RequestParser()
 parser.add_argument("track", type=int, location="json", required=True)
 parser.add_argument("time", type=float, location="json", required=True)
@@ -117,7 +124,7 @@ class NextTrack(Resource):
         if treatment == Treatment.C:
             recommender = sasrec_i2i_recommender
         elif treatment == Treatment.T1:
-            recommender = Indexed(recommendations_hstu_redis.connection, catalog, random_recommender)
+            recommender = contextual_recommender 
         else:
             recommender = random_recommender
 
