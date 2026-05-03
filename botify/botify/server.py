@@ -12,7 +12,12 @@ from gevent.pywsgi import WSGIServer
 
 from botify.data import DataLogger, Datum
 from botify.experiment import Experiments, Treatment
+from botify.recommenders.i2i import I2IRecommender
 from botify.recommenders.random import Random
+from botify.recommenders.indexed import Indexed
+from botify.recommenders.sticky_artist import StickyArtist
+from botify.recommenders.hstu_lgbm import HSTU_LGBM_Recommender
+from botify.recommenders.embeddings_hstu import EmbeddingHSTURecommender
 from botify.track import Catalog
 
 root = logging.getLogger()
@@ -24,6 +29,11 @@ api = Api(app)
 
 tracks_redis = Redis(app, config_prefix="REDIS_TRACKS")
 artists_redis = Redis(app, config_prefix="REDIS_ARTIST")
+listen_history_redis = Redis(app, config_prefix="REDIS_LISTEN_HISTORY")
+recommendations_lfm_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_LFM")
+recommendations_contextual_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_SASREC")
+
+recommendations_hstu_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_HSTU")
 
 data_logger = DataLogger(app)
 atexit.register(data_logger.close)
@@ -31,11 +41,57 @@ atexit.register(data_logger.close)
 catalog = Catalog(app).load(app.config["TRACKS_CATALOG"])
 catalog.upload_tracks(tracks_redis.connection)
 catalog.upload_artists(artists_redis.connection)
+
 random_recommender = Random(tracks_redis.connection)
+sticky_artist_recommender = StickyArtist(tracks_redis, artists_redis, catalog)
+
+
+catalog.upload_recommendations(
+    recommendations_contextual_redis.connection,
+    "RECOMMENDATIONS_SASREC_FILE_PATH",
+    key_object="item_id",
+    key_recommendations="recommendations",
+)
+
+catalog.upload_recommendations(
+    recommendations_hstu_redis.connection,
+    "RECOMMENDATIONS_HSTU_FILE_PATH"
+)
+
+
+sasrec_i2i_recommender = I2IRecommender(
+    listen_history_redis.connection,
+    recommendations_contextual_redis.connection,
+    random_recommender,
+)
+
+lightfm_i2i_recommender = I2IRecommender(
+    listen_history_redis.connection,
+    recommendations_lfm_redis.connection,
+    random_recommender,
+)
+
+embeddings_hstu_recommender = EmbeddingHSTURecommender(
+    tracks_redis,
+    catalog,
+    recommendations_hstu_redis.connection,
+    listen_history_redis.connection,
+    lightfm_i2i_recommender,
+    app.config["EMBEDDINGS_PATH"],
+)
 
 parser = reqparse.RequestParser()
 parser.add_argument("track", type=int, location="json", required=True)
 parser.add_argument("time", type=float, location="json", required=True)
+
+LISTEN_HISTORY_LIMIT = 20
+
+
+def persist_user_listen_history(user: int, track: int, track_time: float):
+    user_history_key = f"user:{user}:listens"
+    history_entry = json.dumps({"track": track, "time": track_time})
+    listen_history_redis.connection.lpush(user_history_key, history_entry)
+    listen_history_redis.connection.ltrim(user_history_key, 0, LISTEN_HISTORY_LIMIT - 1)
 
 
 class Hello(Resource):
@@ -60,16 +116,18 @@ class NextTrack(Resource):
         start = time.time()
 
         args = parser.parse_args()
+        persist_user_listen_history(user, args.track, args.time)
 
-        treatment = Experiments.AA.assign(user)
+        treatment = Experiments.HSTU_EMBEDDINGS.assign(user)
 
-        if treatment == Treatment.T1:
-            recommender = random_recommender
+        if treatment == Treatment.C:
+            recommender = sasrec_i2i_recommender
+        elif treatment == Treatment.T1:
+            recommender = embeddings_hstu_recommender
         else:
             recommender = random_recommender
 
         recommendation = recommender.recommend_next(user, args.track, args.time)
-        experiments = {Experiments.AA.name: treatment.name}
 
         data_logger.log(
             "next",
@@ -81,7 +139,6 @@ class NextTrack(Resource):
                 time.time() - start,
                 recommendation,
             ),
-            experiments=experiments,
         )
         return {"user": user, "track": recommendation}
 
@@ -90,7 +147,7 @@ class LastTrack(Resource):
     def post(self, user: int):
         start = time.time()
         args = parser.parse_args()
-        treatment = Experiments.AA.assign(user)
+        persist_user_listen_history(user, args.track, args.time)
         data_logger.log(
             "last",
             Datum(
@@ -99,8 +156,7 @@ class LastTrack(Resource):
                 args.track,
                 args.time,
                 time.time() - start,
-            ),
-            experiments={Experiments.AA.name: treatment.name},
+            )
         )
         return {"user": user}
 

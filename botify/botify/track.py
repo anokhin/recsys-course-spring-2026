@@ -8,9 +8,13 @@ from typing import List
 @dataclass
 class Track:
     track: int
+    artist_id: int
+    artist_fans: float
     artist: str
     title: str
+    mood: str
     recommendations: List[int] = field(default=lambda: [])
+    genres: List[str] = field(default=lambda: [])
 
 
 class Catalog:
@@ -32,9 +36,13 @@ class Catalog:
                 self.tracks.append(
                     Track(
                         data["track"],
+                        data['artist_id'],
+                        data['artist_fans'],
                         data["artist"],
                         data["title"],
+                        data['mood'],
                         data.get("recommendations", []),
+                        data.get("artist_genres", []),
                     )
                 )
         self.app.logger.info(f"Loaded {j + 1} tracks")
