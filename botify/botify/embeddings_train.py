@@ -33,7 +33,7 @@ vectorizer = TfidfVectorizer(
 )
 tfidf_matrix = vectorizer.fit_transform(corpus)
 
-n_components = 64
+n_components = min(128, tfidf_matrix.shape[1] - 1)
 svd = TruncatedSVD(n_components=n_components, random_state=35)
 embeddings = svd.fit_transform(tfidf_matrix)
 

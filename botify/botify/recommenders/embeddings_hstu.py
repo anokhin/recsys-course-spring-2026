@@ -2,7 +2,6 @@ import pickle
 import joblib
 import json
 import random
-import numpy as np
 from collections import defaultdict
 
 from .recommender import Recommender
@@ -62,7 +61,7 @@ class EmbeddingHSTURecommender(Recommender):
             if cand_vec is None:
                 continue
 
-            semantic_score = float(np.dot(anchor_vec, cand_vec))
+            semantic_score = sum(float(a) * float(c) for a, c in zip(anchor_vec, cand_vec))
             hstu_rank_score = 1.0 - (i / (num_cands - 1)) if num_cands > 1 else 1.0
 
             cand_artist_id = None

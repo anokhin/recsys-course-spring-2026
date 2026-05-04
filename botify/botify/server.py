@@ -16,7 +16,6 @@ from botify.recommenders.i2i import I2IRecommender
 from botify.recommenders.random import Random
 from botify.recommenders.indexed import Indexed
 from botify.recommenders.sticky_artist import StickyArtist
-from botify.recommenders.hstu_lgbm import HSTU_LGBM_Recommender
 from botify.recommenders.embeddings_hstu import EmbeddingHSTURecommender
 from botify.track import Catalog
 
@@ -71,14 +70,14 @@ lightfm_i2i_recommender = I2IRecommender(
     random_recommender,
 )
 
-embeddings_hstu_recommender = EmbeddingHSTURecommender(
-    tracks_redis,
-    catalog,
-    recommendations_hstu_redis.connection,
-    listen_history_redis.connection,
-    lightfm_i2i_recommender,
-    app.config["EMBEDDINGS_PATH"],
-)
+#embeddings_hstu_recommender = EmbeddingHSTURecommender(
+#    tracks_redis,
+ #   catalog,
+  #  recommendations_hstu_redis.connection,
+   # listen_history_redis.connection,
+    #lightfm_i2i_recommender,
+    #app.config["EMBEDDINGS_PATH"],
+#)
 
 parser = reqparse.RequestParser()
 parser.add_argument("track", type=int, location="json", required=True)
@@ -123,7 +122,7 @@ class NextTrack(Resource):
         if treatment == Treatment.C:
             recommender = sasrec_i2i_recommender
         elif treatment == Treatment.T1:
-            recommender = embeddings_hstu_recommender
+            recommender = sasrec_i2i_recommender
         else:
             recommender = random_recommender
 
