@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import time
 import atexit
 from dataclasses import asdict
@@ -16,13 +17,15 @@ from botify.recommenders.i2i import I2IRecommender
 from botify.recommenders.random import Random
 from botify.recommenders.indexed import Indexed
 from botify.recommenders.sticky_artist import StickyArtist
+from botify.recommenders.contextual_i2i import ContextualI2IRecommender
 from botify.track import Catalog
 
 root = logging.getLogger()
 root.setLevel("INFO")
 
 app = Flask(__name__)
-app.config.from_file("config.json", load=json.load)
+config_path = os.environ.get("BOTIFY_CONFIG", "config.json")
+app.config.from_file(config_path, load=json.load)
 api = Api(app)
 
 tracks_redis = Redis(app, config_prefix="REDIS_TRACKS")
@@ -32,6 +35,8 @@ recommendations_lfm_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_LFM"
 recommendations_contextual_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_SASREC")
 
 recommendations_hstu_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_HSTU")
+
+recommendations_combined_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_COMBINED")
 
 data_logger = DataLogger(app)
 atexit.register(data_logger.close)
@@ -67,11 +72,29 @@ catalog.upload_recommendations(
     "RECOMMENDATIONS_HSTU_FILE_PATH"
 )
 
+catalog.upload_recommendations(
+    recommendations_combined_redis.connection,
+    "RECOMMENDATIONS_COMBINED_FILE_PATH",
+    key_object="item_id",
+    key_recommendations="recommendations",
+)
+
 
 sasrec_i2i_recommender = I2IRecommender(
     listen_history_redis.connection,
     recommendations_contextual_redis.connection,
     random_recommender,
+)
+
+contextual_i2i_recommender = ContextualI2IRecommender(
+    listen_history_redis=listen_history_redis.connection,
+    combined_i2i_redis=recommendations_combined_redis.connection,
+    sasrec_i2i_redis=recommendations_contextual_redis.connection,
+    tracks_redis=tracks_redis.connection,
+    artists_redis=artists_redis.connection,
+    catalog=catalog,
+    hstu_redis=recommendations_hstu_redis.connection,
+    fallback_recommender=random_recommender,
 )
 
 parser = reqparse.RequestParser()
@@ -117,7 +140,7 @@ class NextTrack(Resource):
         if treatment == Treatment.C:
             recommender = sasrec_i2i_recommender
         elif treatment == Treatment.T1:
-            recommender = Indexed(recommendations_hstu_redis.connection, catalog, random_recommender)
+            recommender = contextual_i2i_recommender
         else:
             recommender = random_recommender
 
