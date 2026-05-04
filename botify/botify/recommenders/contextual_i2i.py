@@ -1,4 +1,5 @@
 import json
+import pickle
 import random
 from collections import Counter, defaultdict
 
@@ -88,18 +89,13 @@ class ContextualI2IRecommender(Recommender):
             track_time[track] += listened_time
 
         anchors = list(track_time.keys())
-        weights = [track_time[t] for t in anchors]
+        weights = [max(track_time[t], 1e-9) for t in anchors]
 
-        tried = set()
-        while anchors and len(tried) < len(anchors):
+        while anchors:
             anchor = random.choices(anchors, weights=weights, k=1)[0]
-            if anchor in tried:
-                tried.add(anchor)
-                anchors_subset = [a for a in anchors if a not in tried]
-                if not anchors_subset:
-                    break
-                continue
-            tried.add(anchor)
+            idx = anchors.index(anchor)
+            anchors.pop(idx)
+            weights.pop(idx)
 
             recs = self._get_i2i_candidates(anchor, self.combined_i2i_redis)
             if not recs:
@@ -134,7 +130,6 @@ class ContextualI2IRecommender(Recommender):
         return None
 
     def _get_i2i_candidates(self, anchor, i2i_redis):
-        import pickle
         data = i2i_redis.get(anchor)
         if data is None:
             return None
