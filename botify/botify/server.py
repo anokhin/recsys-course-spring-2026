@@ -18,6 +18,10 @@ from botify.recommenders.indexed import Indexed
 from botify.recommenders.sticky_artist import StickyArtist
 from botify.track import Catalog
 
+
+from botify.recommenders.contextual import ContextualRecommender
+
+
 root = logging.getLogger()
 root.setLevel("INFO")
 
@@ -74,6 +78,13 @@ sasrec_i2i_recommender = I2IRecommender(
     random_recommender,
 )
 
+contextual_recommender = ContextualRecommender(
+    recommendations_hstu_redis.connection,
+    listen_history_redis.connection,
+    catalog,
+    sasrec_i2i_recommender # если HSTU пасует, идем в SasRec
+)
+
 parser = reqparse.RequestParser()
 parser.add_argument("track", type=int, location="json", required=True)
 parser.add_argument("time", type=float, location="json", required=True)
@@ -114,12 +125,10 @@ class NextTrack(Resource):
 
         treatment = Experiments.HSTU.assign(user)
 
-        if treatment == Treatment.C:
-            recommender = sasrec_i2i_recommender
-        elif treatment == Treatment.T1:
-            recommender = Indexed(recommendations_hstu_redis.connection, catalog, random_recommender)
+        if treatment == Treatment.T1:
+            recommender = contextual_recommender
         else:
-            recommender = random_recommender
+            recommender = sasrec_i2i_recommender
 
         recommendation = recommender.recommend_next(user, args.track, args.time)
 
