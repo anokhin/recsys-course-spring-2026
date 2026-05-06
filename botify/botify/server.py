@@ -79,12 +79,13 @@ sasrec_i2i_recommender = I2IRecommender(
 )
 
 contextual_recommender = ContextualRecommender(
-    tracks_redis.connection,                     # tracks_redis
-    recommendations_contextual_redis.connection, # recs_redis
-    listen_history_redis.connection,             # history_redis
-    artists_redis.connection,                    # artists_redis
-    catalog,                                     # catalog
-    sasrec_i2i_recommender                       # fallback
+    tracks_redis.connection,
+    recommendations_hstu_redis.connection,      # Твои ML рекомендации
+    recommendations_contextual_redis.connection, # SasRec
+    listen_history_redis.connection,
+    artists_redis.connection,
+    catalog,
+    sasrec_i2i_recommender
 )
 
 parser = reqparse.RequestParser()
@@ -127,10 +128,12 @@ class NextTrack(Resource):
 
         treatment = Experiments.HSTU.assign(user)
 
-        if treatment == Treatment.T1:
-            recommender = contextual_recommender
-        else:
+        if treatment == Treatment.C:
             recommender = sasrec_i2i_recommender
+        elif treatment == Treatment.T1:
+            recommender = contextual_recommender # <--- ПРОВЕРЬ, ЧТО ТУТ НЕ "Indexed"
+        else:
+            recommender = random_recommender
 
         recommendation = recommender.recommend_next(user, args.track, args.time)
 
