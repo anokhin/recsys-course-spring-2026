@@ -79,10 +79,12 @@ sasrec_i2i_recommender = I2IRecommender(
 )
 
 contextual_recommender = ContextualRecommender(
-    recommendations_hstu_redis.connection,
-    listen_history_redis.connection,
-    catalog,
-    sasrec_i2i_recommender # если HSTU пасует, идем в SasRec
+    tracks_redis.connection,                     # tracks_redis
+    recommendations_contextual_redis.connection, # recs_redis
+    listen_history_redis.connection,             # history_redis
+    artists_redis.connection,                    # artists_redis
+    catalog,                                     # catalog
+    sasrec_i2i_recommender                       # fallback
 )
 
 parser = reqparse.RequestParser()
