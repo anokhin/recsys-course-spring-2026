@@ -18,6 +18,10 @@ from botify.recommenders.indexed import Indexed
 from botify.recommenders.sticky_artist import StickyArtist
 from botify.track import Catalog
 
+#from botify.recommenders.hybrid_lgbm_ranker import HybridLGBMFusionRanker
+
+from botify.recommenders.logistic_reranker import LogisticResidualReranker
+
 root = logging.getLogger()
 root.setLevel("INFO")
 
@@ -74,6 +78,38 @@ sasrec_i2i_recommender = I2IRecommender(
     random_recommender,
 )
 
+# hybrid_lgbm_ranker = HybridLGBMFusionRanker(
+#     model_path=app.config["HYBRID_LGBM_RANKER_MODEL_PATH"],
+#     listen_history_redis=listen_history_redis.connection,
+#     hstu_redis=recommendations_hstu_redis.connection,
+#     sasrec_redis=recommendations_contextual_redis.connection,
+#     lfm_redis=recommendations_lfm_redis.connection,
+#     catalog=catalog,
+#     baseline_recommender=sasrec_i2i_recommender,
+#     fallback_recommender=random_recommender,
+#     top_k=10,
+#     min_prev_time=0.75,
+#     advantage_margin=0.08,
+#     min_best_score=0.35,
+# )
+
+
+
+logistic_reranker = LogisticResidualReranker(
+    model_path=app.config["LOGISTIC_RERANKER_MODEL_PATH"],
+    listen_history_redis=listen_history_redis.connection,
+    hstu_redis=recommendations_hstu_redis.connection,
+    sasrec_redis=recommendations_contextual_redis.connection,
+    lfm_redis=recommendations_lfm_redis.connection,
+    catalog=catalog,
+    baseline_recommender=sasrec_i2i_recommender,
+    fallback_recommender=random_recommender,
+    top_k=5,
+    min_prev_time=0.85,
+    advantage_margin=0.25,
+    min_best_score=0.75,
+)
+
 parser = reqparse.RequestParser()
 parser.add_argument("track", type=int, location="json", required=True)
 parser.add_argument("time", type=float, location="json", required=True)
@@ -117,7 +153,8 @@ class NextTrack(Resource):
         if treatment == Treatment.C:
             recommender = sasrec_i2i_recommender
         elif treatment == Treatment.T1:
-            recommender = Indexed(recommendations_hstu_redis.connection, catalog, random_recommender)
+            recommender = logistic_reranker
+            #recommender = Indexed(recommendations_hstu_redis.connection, catalog, random_recommender)
         else:
             recommender = random_recommender
 
