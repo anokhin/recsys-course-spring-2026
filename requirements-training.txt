@@ -1,0 +1,6 @@
+numpy<2.0
+scipy
+pandas
+scikit-learn
+implicit==0.7.2
+lifelines>=0.30,<0.31

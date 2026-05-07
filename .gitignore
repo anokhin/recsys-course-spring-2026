@@ -1,13 +1,27 @@
-.idea/
-sim/out/
-__pycache__
-.ipynb_checkpoints
-botify/log/*
-botify/data/*.json
-!botify/data/tracks.json
+# ── OS / IDE ────────────────────────────────────────────────────────────
 .DS_Store
-
-# LaTeX
+.idea/
+.vscode/
+# ── Python ──────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+# ── Виртуальные окружения ──────────────────────────────────────────────
+.venv/
+venv/
+*env/
+recsys_env/
+# ── Артефакты симулятора и botify-сервиса ──────────────────────────────
+sim/out/
+botify/log/
+# ── Результаты A/B и собранные обучающие логи (только в корне) ─────────
+/data/
+/train_logs/
+# ── LaTeX ───────────────────────────────────────────────────────────────
 *.aux
 *.glo
 *.idx
