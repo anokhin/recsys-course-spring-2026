@@ -27,6 +27,8 @@
   "RECOMMENDATIONS_HSTU_FILE_PATH": "./data/hstu_recommendations.json",
 
   "TRACKS_CATALOG": "./data/tracks.json",
+  "CONTENT_EMBEDDINGS_PATH": "./data/content_embeddings.npy",
+  "CONTENT_EMBEDDINGS_META_PATH": "./data/content_embeddings_meta.json",
   "DATA_LOG_FILE": "./log/data.json",
   "DATA_LOG_FILE_MAX_BYTES": 104857600,
   "DATA_LOG_FILE_BACKUP_COPIES": 10
