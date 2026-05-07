@@ -1,0 +1,242 @@
+\documentclass[11pt,aspectratio=169,handout]{beamer}
+
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{amssymb}
+\usepackage{graphicx}
+\usepackage{bibentry}
+\usepackage{wasysym}
+\usepackage[most]{tcolorbox}
+\usepackage[normalem]{ulem}
+\usepackage{hyperref}
+\usepackage{tikz}
+\usepackage{fontspec}
+
+\usetikzlibrary{arrows.meta,positioning,fit}
+
+\definecolor{info}{RGB}{62, 180, 137}
+\definecolor{warn}{RGB}{128, 0, 0}
+\definecolor{vk}{RGB}{51, 117, 246}
+\newcommand{\code}[1]{\textsf{#1}}
+
+\IfFontExistsTF{VK Sans Display}{%
+  \setsansfont{VK Sans Display}%
+}{%
+  \setsansfont{Arial}%
+}
+
+\setbeamercolor{frametitle}{fg=vk}
+\setbeamercolor{title}{fg=vk}
+\setbeamerfont{frametitle}{size=\LARGE}
+\setbeamerfont{title}{size=\LARGE}
+\addtobeamertemplate{frametitle}{\vspace*{0.5em}\hspace*{1em}}
+
+\useinnertheme{circles}
+\setbeamertemplate{title page}[default][left]
+
+\author{\hspace{-0.5cm} Николай Анохин}
+\title{\hspace{-0.55cm} Симулятор}
+\date{}
+
+\AtBeginSection[]{
+  \begin{frame}
+  \vfill
+  \centering
+  \begin{beamercolorbox}[sep=8pt,center,shadow=true,rounded=true]{title}
+    \usebeamerfont{title}\insertsectionhead\par
+  \end{beamercolorbox}
+  \vfill
+  \end{frame}
+}
+
+\begin{document}
+
+{
+\setbeamertemplate{headline}{}
+
+{
+\usebackgroundtemplate{\includegraphics[width=\paperwidth]{../../slides-adv/week04-nn-ranking/images/title.png}}
+\begin{frame}[b]
+\vfill
+\titlepage
+\end{frame}
+}
+
+}
+
+\begin{frame}[shrink=6]{Цель симулятора}
+
+\begin{columns}[T]
+\begin{column}{0.57\textwidth}
+\begin{tcolorbox}[colback=info!5,colframe=info!80,title=Зачем нужен симулятор]
+\begin{itemize}
+\item Приблизить поведение \textbf{реального пользователя}, а не только offline-метрики на готовом логе
+\item Замкнуть цикл \textit{рекомендация $\rightarrow$ реакция $\rightarrow$ следующая рекомендация}
+\item Проверять эффект обновлений рекомендательного сервиса
+\end{itemize}
+\end{tcolorbox}
+\end{column}
+
+\begin{column}{0.38\textwidth}
+\begin{center}
+\begin{tcolorbox}[colback=white,colframe=info!80,title=Главная идея]
+\Large
+\[
+\hat r_t \Rightarrow
+\text{feedback}_t \Rightarrow
+\hat r_{t+1}
+\]
+\normalsize
+\vspace{0.1cm}
+Оценивать нужно не один айтем, а последовательность решений в сессии.
+\end{tcolorbox}
+\end{center}
+\end{column}
+\end{columns}
+
+\vspace{0.15cm}
+\small
+\begin{itemize}
+\item Симулятор реализован как среда \textbf{Gymnasium}
+\item Запуск разбит на условные \textbf{дни}: после каждого дня сервис можно переобучить и перезапустить
+\end{itemize}
+
+\end{frame}
+
+\begin{frame}{Архитектурная схема симулятора}
+
+\begin{center}
+\begin{tikzpicture}[
+  >=Latex,
+  font=\footnotesize,
+  node distance=0.7cm and 0.9cm,
+  box/.style={draw, rounded corners, thick, align=center, fill=info!8, minimum height=0.9cm, minimum width=2.1cm},
+  innerbox/.style={draw, rounded corners, align=center, fill=white, minimum height=0.65cm, minimum width=2.15cm}
+]
+\node[innerbox] (usercat) at (-1.7,1.05) {UserCatalog};
+\node[innerbox, below=0.45cm of usercat] (session) {Session};
+\node[innerbox, below=0.45cm of session] (trackcat) {TrackCatalog + Faiss};
+\node[draw, rounded corners, thick, fit=(usercat)(session)(trackcat), inner sep=0.35cm,
+      label={[yshift=0.2cm]north:\textbf{RecEnv / Gym API}}] (env) {};
+
+\node[box, right=1.75cm of session, minimum width=2.45cm] (client) {RemoteRecommender\\REST клиент};
+\node[box, right=1.35cm of client, minimum width=1.75cm] (botify) {botify\\service};
+\node[above left=0.2cm and 0.1cm of env.north west, align=left] (runner) {\textbf{sim.run}\\эпизоды / дни};
+
+\draw[->, thick] (runner.east) -- node[above, sloped] {\code{reset()}, \code{step()}} (env.north west);
+\draw[->, thick] (env.east) -- node[above] {obs} (client.west);
+\draw[->, thick] (client) -- node[above] {HTTP} (botify);
+\draw[<-, thick] (botify) -- node[below] {track\_id} (client);
+\draw[<-, thick] (client) -- node[below] {action} (env.east);
+\end{tikzpicture}
+\end{center}
+
+\small
+Наблюдение минимально: \code{user id} и \code{last track id}. Ответ сервиса --- следующий трек, а reward рассчитывается внутри симулятора.
+
+\end{frame}
+
+\begin{frame}{Алгоритм работы симулятора I: интересы пользователя}
+
+\begin{columns}[T]
+\begin{column}{0.5\textwidth}
+\begin{tcolorbox}[colback=info!5,colframe=info!80,title=Профиль пользователя]
+\footnotesize
+\[
+u = \{\code{interests}, b, s, B, \gamma\}
+\]
+\begin{itemize}
+\item \code{interests} --- список треков-якорей
+\item $b$ --- \code{consume\_bias}
+\item $s$ --- \code{consume\_sharpness}
+\item $B$ --- бюджет длины сессии
+\item $\gamma$ --- штраф за повторы одного артиста
+\end{itemize}
+\end{tcolorbox}
+\end{column}
+
+\begin{column}{0.46\textwidth}
+\begin{tcolorbox}[colback=info!5,colframe=info!80,title=Как стартует сессия]
+\footnotesize
+\[
+t^\star \sim \mathrm{Uniform}(\code{interests}_u)
+\]
+\[
+q_{\text{session}} = e(t^\star)
+\]
+
+\begin{itemize}
+\item Из интересов случайно выбирается один трек-якорь
+\item Его эмбеддинг становится \textbf{текущим намерением} сессии
+\item Первый трек сессии сэмплируется из ближайших соседей этого эмбеддинга
+\end{itemize}
+\end{tcolorbox}
+\end{column}
+\end{columns}
+
+\end{frame}
+
+\begin{frame}{Алгоритм работы симулятора II: пользовательская сессия}
+
+\begin{columns}[T]
+\begin{column}{0.52\textwidth}
+\footnotesize
+\begin{enumerate}
+\item Botify получает наблюдение \code{\{user, track\}} и возвращает следующий трек
+\item Если трек уже встречался в сессии, время прослушивания равно $0$
+\item Иначе считается близость рекомендации к эмбеддингу текущего интереса
+\item Затем применяется штраф за повторения одного артиста
+\item Награда = доля прослушивания; сессия завершается при исчерпании бюджета
+\end{enumerate}
+\end{column}
+
+\begin{column}{0.44\textwidth}
+\begin{tcolorbox}[colback=info!5,colframe=info!80,title=Формула реакции]
+\footnotesize
+\[
+\text{score} = \langle e(i), q_{\text{session}} \rangle
+\]
+\[
+\text{raw\_time} = \sigma((\text{score} - b) \cdot s)
+\]
+\[
+\text{time} = \mathrm{round}\bigl(\text{raw\_time} \cdot \gamma^{n_{\text{artist}}}, 2\bigr)
+\]
+
+\begin{itemize}
+\item $b$ управляет порогом ``нравится / не нравится''
+\item $s$ задает резкость отклика
+\item $\gamma^{n_{\text{artist}}}$ штрафует повторения одного артиста
+\end{itemize}
+\end{tcolorbox}
+\end{column}
+\end{columns}
+
+\end{frame}
+
+\begin{frame}{Как готовились данные симулятора}
+
+\begin{tcolorbox}[colback=info!5,colframe=info!80,title=Генерация задачи с помощью LM]
+\footnotesize
+\begin{enumerate}
+\item \textbf{\code{artists.py}}: собирает список популярных артистов по годам, жанрам и странам и сохраняет их метаданные.
+\item \textbf{\code{tracks.py}}: для каждого артиста получает треки, очищает и нормализует данные и формирует каталог \code{tracks.json}.
+\item \textbf{\code{embeddings.py}}: по описанию, жанрам, стране и summary трека строит его эмбеддинг и сохраняет общую матрицу векторов.
+\item \textbf{\code{users.py}}: на основе каталога треков генерирует синтетических пользователей с интересами и параметрами отклика.
+\end{enumerate}
+\end{tcolorbox}
+
+\vspace{0.15cm}
+\footnotesize
+Этот процесс идет от объектов предметной области к представлениям и только затем к пользователям: сначала строится музыкальный каталог, потом его векторное пространство, и уже в нем задаются пользовательские интересы.
+
+\end{frame}
+
+\begin{frame}[shrink=3]{Данные симулятора}
+
+\vspace{3em}
+\url{https://github.com/anokhin/recsys-course-spring-2026/blob/master/jupyter/SimulatorData.ipynb}
+
+\end{frame}
+
+\end{document}
