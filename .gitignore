@@ -1,5 +1,6 @@
 .idea/
 sim/out/
+sim/data/embeddings.npy
 __pycache__
 .ipynb_checkpoints
 botify/log/*
@@ -33,3 +34,6 @@ botify/data/*.json
 *.synctex.gz
 *.nav
 *.snm
+/.temp
+/.local_check
+/.venv
