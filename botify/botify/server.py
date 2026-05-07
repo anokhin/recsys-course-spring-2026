@@ -17,6 +17,7 @@ from botify.recommenders.random import Random
 from botify.recommenders.indexed import Indexed
 from botify.recommenders.sticky_artist import StickyArtist
 from botify.track import Catalog
+from botify.recommenders.contextual_indexed import ContextualIndexedRecommender
 
 root = logging.getLogger()
 root.setLevel("INFO")
@@ -32,6 +33,7 @@ recommendations_lfm_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_LFM"
 recommendations_contextual_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_SASREC")
 
 recommendations_hstu_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_HSTU")
+recommendations_improved_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_IMPROVED")
 
 data_logger = DataLogger(app)
 atexit.register(data_logger.close)
@@ -67,6 +69,12 @@ catalog.upload_recommendations(
     "RECOMMENDATIONS_HSTU_FILE_PATH"
 )
 
+catalog.upload_recommendations(
+    recommendations_improved_redis.connection,
+    "RECOMMENDATIONS_IMPROVED_FILE_PATH",
+    key_object="item_id",
+    key_recommendations="recommendations",
+)
 
 sasrec_i2i_recommender = I2IRecommender(
     listen_history_redis.connection,
@@ -112,15 +120,16 @@ class NextTrack(Resource):
         args = parser.parse_args()
         persist_user_listen_history(user, args.track, args.time)
 
-        treatment = Experiments.HSTU.assign(user)
+        treatment = Experiments.IMPROVED.assign(user)
 
         if treatment == Treatment.C:
             recommender = sasrec_i2i_recommender
-        elif treatment == Treatment.T1:
-            recommender = Indexed(recommendations_hstu_redis.connection, catalog, random_recommender)
         else:
-            recommender = random_recommender
-
+            recommender = ContextualIndexedRecommender(
+                listen_history_redis.connection,
+                recommendations_improved_redis.connection,
+                random_recommender,
+            )
         recommendation = recommender.recommend_next(user, args.track, args.time)
 
         data_logger.log(
