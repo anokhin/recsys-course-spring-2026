@@ -78,14 +78,13 @@ sasrec_i2i_recommender = I2IRecommender(
     random_recommender,
 )
 
+# В блоке создания рекоммендеров:
 contextual_recommender = ContextualRecommender(
-    tracks_redis.connection,
-    recommendations_hstu_redis.connection,      # Твои ML рекомендации
-    recommendations_contextual_redis.connection, # SasRec
-    listen_history_redis.connection,
-    artists_redis.connection,
-    catalog,
-    sasrec_i2i_recommender
+    recommendations_hstu_redis.connection,      # recs_hstu_redis
+    recommendations_contextual_redis.connection, # recs_sasrec_redis
+    listen_history_redis.connection,             # history_redis
+    catalog,                                     # catalog
+    sasrec_i2i_recommender                       # fallback (базовый SasRec)
 )
 
 parser = reqparse.RequestParser()
