@@ -33,3 +33,11 @@ botify/data/*.json
 *.synctex.gz
 *.nav
 *.snm
+
+data_ab/
+train_logs/
+ab_result.json
+botify_logs.tar.gz
+botify_log_2.tar.gz
+botify/my_ranker_bundle.joblib
+train_my_ranker.py
