@@ -12,6 +12,7 @@ from gevent.pywsgi import WSGIServer
 
 from botify.data import DataLogger, Datum
 from botify.experiment import Experiments, Treatment
+from botify.recommenders.lightfm_contextual import LightFMContextualRecommender
 from botify.recommenders.i2i import I2IRecommender
 from botify.recommenders.random import Random
 from botify.recommenders.indexed import Indexed
@@ -67,10 +68,16 @@ catalog.upload_recommendations(
     "RECOMMENDATIONS_HSTU_FILE_PATH"
 )
 
-
 sasrec_i2i_recommender = I2IRecommender(
     listen_history_redis.connection,
     recommendations_contextual_redis.connection,
+    random_recommender,
+)
+
+lightfm_contextual_recommender = LightFMContextualRecommender(
+    recommendations_lfm_redis.connection,
+    listen_history_redis.connection,
+    catalog,
     random_recommender,
 )
 
@@ -117,7 +124,7 @@ class NextTrack(Resource):
         if treatment == Treatment.C:
             recommender = sasrec_i2i_recommender
         elif treatment == Treatment.T1:
-            recommender = Indexed(recommendations_hstu_redis.connection, catalog, random_recommender)
+            recommender = lightfm_contextual_recommender
         else:
             recommender = random_recommender
 
