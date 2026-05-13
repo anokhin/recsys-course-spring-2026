@@ -6,3 +6,4 @@ mmh3==3.0.0
 gevent
 gunicorn
 scikit-learn
+joblib>=1.1.0
