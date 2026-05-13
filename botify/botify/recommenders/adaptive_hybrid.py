@@ -7,9 +7,10 @@ from .recommender import Recommender
 
 
 class AdaptiveHybridRecommender(Recommender):
-    SOURCE_HSTU = "hstu"
     SOURCE_SASREC = "sasrec"
     SOURCE_LFM = "lfm"
+    SOURCE_HSTU = "hstu"
+    SOURCE_TRACK = "track"
     SOURCE_BASELINE = "baseline"
 
     def __init__(
@@ -22,11 +23,11 @@ class AdaptiveHybridRecommender(Recommender):
         catalog,
         baseline_recommender,
         fallback_recommender,
-        max_history=3,
-        max_hstu=40,
-        topk_per_anchor=8,
-        min_prev_time_for_override=0.40,
-        margin=0.035,
+        max_history=5,
+        topk_sasrec=14,
+        topk_lightfm=8,
+        topk_hstu=18,
+        topk_track=8,
     ):
         self.listen_history_redis = listen_history_redis
         self.hstu_redis = hstu_redis
@@ -37,13 +38,21 @@ class AdaptiveHybridRecommender(Recommender):
         self.fallback_recommender = fallback_recommender
 
         self.max_history = int(max_history)
-        self.max_hstu = int(max_hstu)
-        self.topk_per_anchor = int(topk_per_anchor)
-        self.min_prev_time_for_override = float(min_prev_time_for_override)
-        self.margin = float(margin)
+        self.topk_sasrec = int(topk_sasrec)
+        self.topk_lightfm = int(topk_lightfm)
+        self.topk_hstu = int(topk_hstu)
+        self.topk_track = int(topk_track)
 
-        self._hstu_cache = {}
         self._i2i_cache = {}
+        self._hstu_cache = {}
+
+        self.track_by_id = {}
+
+        for track in getattr(catalog, "tracks", []):
+            try:
+                self.track_by_id[int(track.track)] = track
+            except Exception:
+                continue
 
     def _safe_int(self, value, default=None):
         try:
@@ -83,25 +92,6 @@ class AdaptiveHybridRecommender(Recommender):
 
         return history
 
-    def _load_hstu(self, user):
-        user = int(user)
-
-        if user in self._hstu_cache:
-            return self._hstu_cache[user]
-
-        raw = self.hstu_redis.get(user)
-        recs = self._loads_pickle(raw, [])
-
-        result = []
-
-        for x in recs:
-            value = self._safe_int(x)
-            if value is not None:
-                result.append(value)
-
-        self._hstu_cache[user] = result
-        return result
-
     def _load_i2i(self, source, track):
         track = int(track)
         cache_key = (source, track)
@@ -127,144 +117,24 @@ class AdaptiveHybridRecommender(Recommender):
         self._i2i_cache[cache_key] = result
         return result
 
-    def _bandit_key(self, user):
-        return f"user:{int(user)}:adaptive_hybrid_balanced:source_score"
+    def _load_hstu(self, user):
+        user = int(user)
 
-    def _pending_key(self, user):
-        return f"user:{int(user)}:adaptive_hybrid_balanced:pending"
+        if user in self._hstu_cache:
+            return self._hstu_cache[user]
 
-    def _source_multiplier(self, user, source):
-        raw = self.listen_history_redis.hget(self._bandit_key(user), source)
+        raw = self.hstu_redis.get(user)
+        recs = self._loads_pickle(raw, [])
 
-        if raw is None:
-            return 1.0
+        result = []
 
-        try:
-            if isinstance(raw, bytes):
-                raw = raw.decode("utf-8")
+        for x in recs:
+            value = self._safe_int(x)
+            if value is not None:
+                result.append(value)
 
-            ema = float(raw)
-            return min(1.28, max(0.78, 0.80 + ema))
-        except Exception:
-            return 1.0
-
-    def _update_bandit_from_previous_result(self, user, prev_track, prev_track_time):
-        raw = self.listen_history_redis.get(self._pending_key(user))
-
-        if raw is None:
-            return
-
-        try:
-            if isinstance(raw, bytes):
-                raw = raw.decode("utf-8")
-
-            pending = json.loads(raw)
-
-            if int(pending.get("track")) != int(prev_track):
-                return
-
-            source = str(pending.get("source"))
-        except Exception:
-            return
-
-        reward = max(0.0, min(1.0, float(prev_track_time)))
-
-        key = self._bandit_key(user)
-        old_raw = self.listen_history_redis.hget(key, source)
-
-        try:
-            if isinstance(old_raw, bytes):
-                old_raw = old_raw.decode("utf-8")
-
-            old = float(old_raw) if old_raw is not None else 0.50
-        except Exception:
-            old = 0.50
-
-        new = 0.86 * old + 0.14 * reward
-        self.listen_history_redis.hset(key, source, new)
-
-    def _remember_recommendation_source(self, user, track, source):
-        payload = json.dumps(
-            {
-                "track": int(track),
-                "source": str(source),
-            }
-        )
-
-        self.listen_history_redis.setex(self._pending_key(user), 3600, payload)
-
-    def _add_candidate(self, table, cand, source, value):
-        cand = self._safe_int(cand)
-
-        if cand is None:
-            return
-
-        row = table[cand]
-        row["score"] += float(value)
-        row["sources"][source] += float(value)
-
-    def _build_candidates(self, user, history, seen, baseline):
-        table = defaultdict(lambda: {"score": 0.0, "sources": defaultdict(float)})
-
-        if baseline is not None and baseline not in seen:
-            self._add_candidate(table, baseline, self.SOURCE_BASELINE, 1.05)
-
-        hstu_recs = self._load_hstu(user)
-
-        for rank, cand in enumerate(hstu_recs[: self.max_hstu], start=1):
-            if cand in seen:
-                continue
-
-            value = 0.72 / math.sqrt(rank + 2.0)
-            self._add_candidate(table, cand, self.SOURCE_HSTU, value)
-
-        for pos, pair in enumerate(history[: self.max_history]):
-            anchor, listened_time = pair
-
-            listened_time = max(0.0, min(1.0, float(listened_time)))
-            anchor_weight = (0.68 ** pos) * (0.25 + listened_time)
-
-            sasrec_neighbours = self._load_i2i(self.SOURCE_SASREC, anchor)[
-                : self.topk_per_anchor
-            ]
-
-            for rank, cand in enumerate(sasrec_neighbours, start=1):
-                if cand in seen:
-                    continue
-
-                value = 0.95 * anchor_weight / (rank + 1.7)
-                self._add_candidate(table, cand, self.SOURCE_SASREC, value)
-
-            lightfm_neighbours = self._load_i2i(self.SOURCE_LFM, anchor)[
-                : self.topk_per_anchor
-            ]
-
-            for rank, cand in enumerate(lightfm_neighbours, start=1):
-                if cand in seen:
-                    continue
-
-                value = 0.60 * anchor_weight / (rank + 2.2)
-                self._add_candidate(table, cand, self.SOURCE_LFM, value)
-
-        for cand, row in table.items():
-            adjusted = 0.0
-
-            for source, value in row["sources"].items():
-                adjusted += value * self._source_multiplier(user, source)
-
-            row["score"] = adjusted
-
-        for bad in list(table.keys()):
-            if bad in seen:
-                del table[bad]
-
-        return table
-
-    def _choose_source_label(self, row):
-        if not row["sources"]:
-            return "unknown"
-
-        return max(row["sources"].items(), key=lambda x: x[1])[0]
+        self._hstu_cache[user] = result
+        return result
 
     def _safe_baseline(self, user, prev_track, prev_track_time):
         try:
@@ -279,12 +149,154 @@ class AdaptiveHybridRecommender(Recommender):
         except Exception:
             return None
 
+    def _add_candidate(self, table, cand, source, value):
+        cand = self._safe_int(cand)
+
+        if cand is None:
+            return
+
+        row = table[cand]
+        row["score"] += float(value)
+        row["sources"][source] += float(value)
+
+    def _track_recommendations(self, track_id):
+        track = self.track_by_id.get(int(track_id))
+
+        if track is None:
+            return []
+
+        recs = getattr(track, "recommendations", None)
+
+        if not recs:
+            return []
+
+        result = []
+
+        for x in recs:
+            value = self._safe_int(x)
+            if value is not None:
+                result.append(value)
+
+        return result
+
+    def _history_signal(self, listened_time, pos):
+        listened_time = max(0.0, min(1.0, float(listened_time)))
+
+        # Прямо игнорируем почти скипы.
+        # Они не должны тянуть похожие треки.
+        if listened_time < 0.30:
+            return 0.0
+
+        recency = 0.62 ** pos
+
+        # Нелинейно усиливаем реально хорошие прослушивания.
+        quality = listened_time * listened_time
+
+        return recency * (0.20 + quality)
+
+    def _build_candidates(self, user, history, seen, baseline, prev_track_time):
+        table = defaultdict(lambda: {"score": 0.0, "sources": defaultdict(float)})
+
+        # Baseline — сильный безопасный кандидат.
+        if baseline is not None and baseline not in seen:
+            self._add_candidate(table, baseline, self.SOURCE_BASELINE, 0.65)
+
+        # Если последний трек был почти скипом, не экспериментируем.
+        if prev_track_time < 0.30:
+            return table
+
+        # 1) Главный сигнал: последние хорошо прослушанные треки.
+        for pos, pair in enumerate(history[: self.max_history]):
+            anchor, listened_time = pair
+            signal = self._history_signal(listened_time, pos)
+
+            if signal <= 0.0:
+                continue
+
+            # SasRec-I2I — главный session-сигнал.
+            sasrec_neighbours = self._load_i2i(self.SOURCE_SASREC, anchor)[
+                : self.topk_sasrec
+            ]
+
+            for rank, cand in enumerate(sasrec_neighbours, start=1):
+                if cand in seen:
+                    continue
+
+                value = 1.35 * signal / (rank + 1.35)
+                self._add_candidate(table, cand, self.SOURCE_SASREC, value)
+
+            # LightFM — дополнительный источник, слабее SasRec.
+            lightfm_neighbours = self._load_i2i(self.SOURCE_LFM, anchor)[
+                : self.topk_lightfm
+            ]
+
+            for rank, cand in enumerate(lightfm_neighbours, start=1):
+                if cand in seen:
+                    continue
+
+                value = 0.58 * signal / (rank + 1.85)
+                self._add_candidate(table, cand, self.SOURCE_LFM, value)
+
+            # Content/track-level recs из каталога, только если трек реально зашел.
+            if listened_time >= 0.55:
+                track_recs = self._track_recommendations(anchor)[: self.topk_track]
+
+                for rank, cand in enumerate(track_recs, start=1):
+                    if cand in seen:
+                        continue
+
+                    value = 0.72 * signal / (rank + 1.60)
+                    self._add_candidate(table, cand, self.SOURCE_TRACK, value)
+
+        # 2) HSTU — только как слабый персональный tie-breaker.
+        # Раньше HSTU слишком шумел, поэтому вес маленький.
+        hstu_recs = self._load_hstu(user)
+
+        hstu_weight = 0.20
+
+        if prev_track_time >= 0.70:
+            hstu_weight = 0.28
+
+        for rank, cand in enumerate(hstu_recs[: self.topk_hstu], start=1):
+            if cand in seen:
+                continue
+
+            value = hstu_weight / math.sqrt(rank + 3.0)
+            self._add_candidate(table, cand, self.SOURCE_HSTU, value)
+
+        for bad in list(table.keys()):
+            if bad in seen:
+                del table[bad]
+
+        return table
+
+    def _choose_source_label(self, row):
+        if not row["sources"]:
+            return "unknown"
+
+        return max(row["sources"].items(), key=lambda x: x[1])[0]
+
+    def _override_margin(self, prev_track_time):
+        # Чем лучше пользователь слушал предыдущий трек,
+        # тем охотнее идем в session-рекомендацию.
+        if prev_track_time >= 0.78:
+            return -0.040
+
+        if prev_track_time >= 0.62:
+            return -0.015
+
+        if prev_track_time >= 0.45:
+            return 0.010
+
+        if prev_track_time >= 0.30:
+            return 0.045
+
+        return 999.0
+
     def recommend_next(self, user: int, prev_track: int, prev_track_time: float) -> int:
         user = int(user)
         prev_track = int(prev_track)
         prev_track_time = float(prev_track_time)
-
-        self._update_bandit_from_previous_result(user, prev_track, prev_track_time)
 
         baseline = self._safe_baseline(user, prev_track, prev_track_time)
         history = self._load_history(user)
@@ -292,16 +304,14 @@ class AdaptiveHybridRecommender(Recommender):
 
         if not history:
             if baseline is not None:
-                self._remember_recommendation_source(user, baseline, self.SOURCE_BASELINE)
                 return baseline
 
             return self.fallback_recommender.recommend_next(user, prev_track, prev_track_time)
 
-        candidates = self._build_candidates(user, history, seen, baseline)
+        candidates = self._build_candidates(user, history, seen, baseline, prev_track_time)
 
         if not candidates:
             if baseline is not None:
-                self._remember_recommendation_source(user, baseline, self.SOURCE_BASELINE)
                 return baseline
 
             return self.fallback_recommender.recommend_next(user, prev_track, prev_track_time)
@@ -323,14 +333,12 @@ class AdaptiveHybridRecommender(Recommender):
         use_best = baseline is None
 
         if baseline is not None and best != baseline:
-            if prev_track_time >= self.min_prev_time_for_override:
-                if baseline_score is None or best_score >= baseline_score + self.margin:
-                    use_best = True
+            margin = self._override_margin(prev_track_time)
+
+            if baseline_score is None or best_score >= baseline_score + margin:
+                use_best = True
 
         if use_best:
-            source = self._choose_source_label(best_row)
-            self._remember_recommendation_source(user, best, source)
             return int(best)
 
-        self._remember_recommendation_source(user, baseline, self.SOURCE_BASELINE)
         return int(baseline)
