@@ -16,6 +16,7 @@ from botify.recommenders.i2i import I2IRecommender
 from botify.recommenders.random import Random
 from botify.recommenders.indexed import Indexed
 from botify.recommenders.sticky_artist import StickyArtist
+from botify.recommenders.hybrid import HybridRecommender
 from botify.track import Catalog
 
 root = logging.getLogger()
@@ -33,6 +34,9 @@ recommendations_contextual_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIO
 
 recommendations_hstu_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_HSTU")
 
+
+
+
 data_logger = DataLogger(app)
 atexit.register(data_logger.close)
 
@@ -43,12 +47,23 @@ catalog.upload_artists(artists_redis.connection)
 random_recommender = Random(tracks_redis.connection)
 sticky_artist_recommender = StickyArtist(tracks_redis, artists_redis, catalog)
 
+
+with open(app.config["RECOMMENDATIONS_HSTU_FILE_PATH"]) as f:
+    recs = json.load(f)
+
+for user, tracks in recs.items():
+    recommendations_hstu_redis.connection.set(
+        int(user),
+        catalog.to_bytes(tracks)
+    )
+
 catalog.upload_recommendations(
     recommendations_lfm_redis.connection,
     "RECOMMENDATIONS_LFM_FILE_PATH",
     key_object="item_id",
     key_recommendations="recommendations",
 )
+
 lightfm_i2i_recommender = I2IRecommender(
     listen_history_redis.connection,
     recommendations_lfm_redis.connection,
@@ -62,9 +77,16 @@ catalog.upload_recommendations(
     key_recommendations="recommendations",
 )
 
-catalog.upload_recommendations(
+# catalog.upload_recommendations(
+#     recommendations_hstu_redis.connection,
+#     "RECOMMENDATIONS_HSTU_FILE_PATH"
+# )
+
+hstu_recommender = Indexed(
     recommendations_hstu_redis.connection,
-    "RECOMMENDATIONS_HSTU_FILE_PATH"
+    catalog,
+    random_recommender,
+    tracks_redis.connection
 )
 
 
@@ -73,6 +95,25 @@ sasrec_i2i_recommender = I2IRecommender(
     recommendations_contextual_redis.connection,
     random_recommender,
 )
+
+lightfm_recommender = I2IRecommender(
+    listen_history_redis.connection,
+    recommendations_lfm_redis.connection,
+    random_recommender
+)
+
+# hybrid = HybridRecommender(
+#     indexed=Indexed(
+#         recommendations_hstu_redis.connection,
+#         catalog,
+#         random_recommender,
+#         tracks_redis.connection  # 👈 ДОБАВЬ
+#     ),
+#     i2i=sasrec_i2i_recommender,
+#     fallback=random_recommender,
+#     catalog=catalog,
+#     redis=listen_history_redis.connection # 👈 И ЭТО ИСПРАВЬ
+# )
 
 parser = reqparse.RequestParser()
 parser.add_argument("track", type=int, location="json", required=True)
@@ -117,7 +158,7 @@ class NextTrack(Resource):
         if treatment == Treatment.C:
             recommender = sasrec_i2i_recommender
         elif treatment == Treatment.T1:
-            recommender = Indexed(recommendations_hstu_redis.connection, catalog, random_recommender)
+            recommender = hstu_recommender
         else:
             recommender = random_recommender
 
