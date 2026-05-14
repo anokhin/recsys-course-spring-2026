@@ -17,6 +17,7 @@ from botify.recommenders.random import Random
 from botify.recommenders.indexed import Indexed
 from botify.recommenders.sticky_artist import StickyArtist
 from botify.track import Catalog
+from botify.recommenders.sasrec_voting import SasRecVoting
 
 root = logging.getLogger()
 root.setLevel("INFO")
@@ -74,6 +75,12 @@ sasrec_i2i_recommender = I2IRecommender(
     random_recommender,
 )
 
+sasrec_voting_recommender=SasRecVoting(
+    listen_history_redis.connection,
+    recommendations_contextual_redis.connection,
+    random_recommender,
+)
+
 parser = reqparse.RequestParser()
 parser.add_argument("track", type=int, location="json", required=True)
 parser.add_argument("time", type=float, location="json", required=True)
@@ -117,7 +124,8 @@ class NextTrack(Resource):
         if treatment == Treatment.C:
             recommender = sasrec_i2i_recommender
         elif treatment == Treatment.T1:
-            recommender = Indexed(recommendations_hstu_redis.connection, catalog, random_recommender)
+            recommender = sasrec_voting_recommender
+            #recommender = Indexed(recommendations_hstu_redis.connection, catalog, random_recommender)
         else:
             recommender = random_recommender
 
