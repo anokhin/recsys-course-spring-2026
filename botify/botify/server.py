@@ -1,20 +1,20 @@
+import atexit
 import json
 import logging
 import time
-import atexit
 from dataclasses import asdict
 from datetime import datetime
 
 from flask import Flask
 from flask_redis import Redis
-from flask_restful import Resource, Api, abort, reqparse
+from flask_restful import Api, Resource, abort, reqparse
 from gevent.pywsgi import WSGIServer
 
 from botify.data import DataLogger, Datum
 from botify.experiment import Experiments, Treatment
 from botify.recommenders.i2i import I2IRecommender
 from botify.recommenders.random import Random
-from botify.recommenders.indexed import Indexed
+from botify.recommenders.artist_balanced_i2i import ArtistBalancedI2IRecommender
 from botify.recommenders.sticky_artist import StickyArtist
 from botify.track import Catalog
 
@@ -30,8 +30,7 @@ artists_redis = Redis(app, config_prefix="REDIS_ARTIST")
 listen_history_redis = Redis(app, config_prefix="REDIS_LISTEN_HISTORY")
 recommendations_lfm_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_LFM")
 recommendations_contextual_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_SASREC")
-
-recommendations_hstu_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_HSTU")
+recommendations_ranker_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_RANKER")
 
 data_logger = DataLogger(app)
 atexit.register(data_logger.close)
@@ -63,16 +62,24 @@ catalog.upload_recommendations(
 )
 
 catalog.upload_recommendations(
-    recommendations_hstu_redis.connection,
-    "RECOMMENDATIONS_HSTU_FILE_PATH"
+    recommendations_ranker_redis.connection,
+    "RECOMMENDATIONS_RANKER_I2I_FILE_PATH",
+    key_object="item_id",
+    key_recommendations="recommendations",
 )
-
 
 sasrec_i2i_recommender = I2IRecommender(
     listen_history_redis.connection,
     recommendations_contextual_redis.connection,
     random_recommender,
 )
+artist_balanced_recommender = ArtistBalancedI2IRecommender(
+    listen_history_redis.connection,
+    recommendations_ranker_redis.connection,
+    random_recommender,
+    catalog,
+)
+
 
 parser = reqparse.RequestParser()
 parser.add_argument("track", type=int, location="json", required=True)
@@ -101,8 +108,7 @@ class Track(Resource):
         data = tracks_redis.connection.get(track)
         if data is not None:
             return asdict(catalog.from_bytes(data))
-        else:
-            abort(404, description="Track not found")
+        abort(404, description="Track not found")
 
 
 class NextTrack(Resource):
@@ -112,12 +118,12 @@ class NextTrack(Resource):
         args = parser.parse_args()
         persist_user_listen_history(user, args.track, args.time)
 
-        treatment = Experiments.HSTU.assign(user)
+        treatment = Experiments.RANKER_I2I.assign(user)
 
         if treatment == Treatment.C:
             recommender = sasrec_i2i_recommender
         elif treatment == Treatment.T1:
-            recommender = Indexed(recommendations_hstu_redis.connection, catalog, random_recommender)
+            recommender = artist_balanced_recommender
         else:
             recommender = random_recommender
 
@@ -150,7 +156,7 @@ class LastTrack(Resource):
                 args.track,
                 args.time,
                 time.time() - start,
-            )
+            ),
         )
         return {"user": user}
 
@@ -160,7 +166,7 @@ api.add_resource(Track, "/track/<int:track>")
 api.add_resource(NextTrack, "/next/<int:user>")
 api.add_resource(LastTrack, "/last/<int:user>")
 
-app.logger.info(f"Botify service stared")
+app.logger.info("Botify service stared")
 
 if __name__ == "__main__":
     http_server = WSGIServer(("", 5001), app)
