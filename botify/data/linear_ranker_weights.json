@@ -1,0 +1,27 @@
+{
+  "bias": -0.15,
+  "max_recent_anchors": 3,
+  "max_candidates_per_source": {
+    "sasrec": 10,
+    "lightfm": 10,
+    "hstu": 50
+  },
+  "in_sasrec": 1.05,
+  "in_lightfm": 0.75,
+  "in_hstu": 0.2,
+  "sasrec_best_rr": 2.3,
+  "lightfm_best_rr": 1.45,
+  "hstu_best_rr": 0.25,
+  "sasrec_last_rr": 1.55,
+  "lightfm_last_rr": 0.95,
+  "sasrec_second_rr": 0.65,
+  "lightfm_second_rr": 0.45,
+  "source_votes": 0.35,
+  "consensus": 0.95,
+  "same_artist_as_last": -2.4,
+  "artist_seen_count": -0.9,
+  "fresh_artist": 0.18,
+  "anchor_weight_sum": 0.22,
+  "anchor_weight_max": 0.12,
+  "anchor_count": 0.1
+}
