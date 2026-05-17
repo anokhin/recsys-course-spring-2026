@@ -13,9 +13,8 @@ from gevent.pywsgi import WSGIServer
 from botify.data import DataLogger, Datum
 from botify.experiment import Experiments, Treatment
 from botify.recommenders.i2i import I2IRecommender
+from botify.recommenders.online_ranker import OnlineRankerRecommender
 from botify.recommenders.random import Random
-from botify.recommenders.indexed import Indexed
-from botify.recommenders.sticky_artist import StickyArtist
 from botify.track import Catalog
 
 root = logging.getLogger()
@@ -30,8 +29,7 @@ artists_redis = Redis(app, config_prefix="REDIS_ARTIST")
 listen_history_redis = Redis(app, config_prefix="REDIS_LISTEN_HISTORY")
 recommendations_lfm_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_LFM")
 recommendations_contextual_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_SASREC")
-
-recommendations_hstu_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_HSTU")
+recommendations_dlrm_sasrec_rerank_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_DLRM_SASREC_RERANK")
 
 data_logger = DataLogger(app)
 atexit.register(data_logger.close)
@@ -41,7 +39,6 @@ catalog.upload_tracks(tracks_redis.connection)
 catalog.upload_artists(artists_redis.connection)
 
 random_recommender = Random(tracks_redis.connection)
-sticky_artist_recommender = StickyArtist(tracks_redis, artists_redis, catalog)
 
 catalog.upload_recommendations(
     recommendations_lfm_redis.connection,
@@ -63,15 +60,32 @@ catalog.upload_recommendations(
 )
 
 catalog.upload_recommendations(
-    recommendations_hstu_redis.connection,
-    "RECOMMENDATIONS_HSTU_FILE_PATH"
+    recommendations_dlrm_sasrec_rerank_redis.connection,
+    "RECOMMENDATIONS_DLRM_SASREC_RERANK_FILE_PATH",
+    key_object="item_id",
+    key_recommendations="recommendations",
 )
-
 
 sasrec_i2i_recommender = I2IRecommender(
     listen_history_redis.connection,
     recommendations_contextual_redis.connection,
     random_recommender,
+)
+
+dlrm_sasrec_rerank_i2i_recommender = I2IRecommender(
+    listen_history_redis.connection,
+    recommendations_dlrm_sasrec_rerank_redis.connection,
+    random_recommender,
+)
+
+online_ranker_recommender = OnlineRankerRecommender(
+    listen_history_redis.connection,
+    recommendations_contextual_redis.connection,
+    recommendations_lfm_redis.connection,
+    recommendations_dlrm_sasrec_rerank_redis.connection,
+    app.config["ONLINE_RANKER_MODEL_PATH"],
+    app.config["TRACKS_CATALOG"],
+    dlrm_sasrec_rerank_i2i_recommender,
 )
 
 parser = reqparse.RequestParser()
@@ -112,14 +126,14 @@ class NextTrack(Resource):
         args = parser.parse_args()
         persist_user_listen_history(user, args.track, args.time)
 
-        treatment = Experiments.HSTU.assign(user)
+        treatment = Experiments.HOMEWORK2.assign(user)
 
         if treatment == Treatment.C:
             recommender = sasrec_i2i_recommender
         elif treatment == Treatment.T1:
-            recommender = Indexed(recommendations_hstu_redis.connection, catalog, random_recommender)
+            recommender = online_ranker_recommender
         else:
-            recommender = random_recommender
+            recommender = sasrec_i2i_recommender
 
         recommendation = recommender.recommend_next(user, args.track, args.time)
 
@@ -150,7 +164,7 @@ class LastTrack(Resource):
                 args.track,
                 args.time,
                 time.time() - start,
-            )
+            ),
         )
         return {"user": user}
 

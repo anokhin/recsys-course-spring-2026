@@ -6,6 +6,7 @@ botify/log/*
 botify/data/*.json
 !botify/data/tracks.json
 .DS_Store
+.claude/
 
 # LaTeX
 *.aux
