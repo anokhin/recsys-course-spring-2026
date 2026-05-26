@@ -33,3 +33,11 @@ botify/data/*.json
 *.synctex.gz
 *.nav
 *.snm
+runs/
+runs_boost/
+results/
+.venv/
+.trainvenv/
+__pycache__/
+*.pyc
+botify.tar.xz
