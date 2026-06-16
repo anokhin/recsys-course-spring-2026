@@ -16,6 +16,7 @@ from botify.recommenders.i2i import I2IRecommender
 from botify.recommenders.random import Random
 from botify.recommenders.indexed import Indexed
 from botify.recommenders.sticky_artist import StickyArtist
+from botify.recommenders.ml_reranker import MLReranker
 from botify.track import Catalog
 
 root = logging.getLogger()
@@ -32,6 +33,7 @@ recommendations_lfm_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_LFM"
 recommendations_contextual_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_SASREC")
 
 recommendations_hstu_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_HSTU")
+recommendations_emb_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_EMB")
 
 data_logger = DataLogger(app)
 atexit.register(data_logger.close)
@@ -67,11 +69,30 @@ catalog.upload_recommendations(
     "RECOMMENDATIONS_HSTU_FILE_PATH"
 )
 
+catalog.upload_recommendations(
+    recommendations_emb_redis.connection,
+    "RECOMMENDATIONS_EMB_FILE_PATH",
+    key_object="item_id",
+    key_recommendations="recommendations",
+)
+
+import pickle
+with open(app.config.get("ML_TRACK_FEATURES_PATH", "./data/track_features.pkl"), "rb") as f:
+    track_features = pickle.load(f)
+
 
 sasrec_i2i_recommender = I2IRecommender(
     listen_history_redis.connection,
     recommendations_contextual_redis.connection,
     random_recommender,
+)
+
+ml_reranker_recommender = MLReranker(
+    listen_history_redis=listen_history_redis.connection,
+    emb_i2i_redis=recommendations_emb_redis.connection,
+    sasrec_i2i_redis=recommendations_contextual_redis.connection,
+    track_features=track_features,
+    fallback_recommender=random_recommender,
 )
 
 parser = reqparse.RequestParser()
@@ -112,12 +133,12 @@ class NextTrack(Resource):
         args = parser.parse_args()
         persist_user_listen_history(user, args.track, args.time)
 
-        treatment = Experiments.HSTU.assign(user)
+        treatment = Experiments.ML_RERANKER.assign(user)
 
         if treatment == Treatment.C:
             recommender = sasrec_i2i_recommender
         elif treatment == Treatment.T1:
-            recommender = Indexed(recommendations_hstu_redis.connection, catalog, random_recommender)
+            recommender = ml_reranker_recommender
         else:
             recommender = random_recommender
 

@@ -1,1 +1,0 @@
-[папка со слайдами](https://drive.google.com/drive/folders/1n8zbTlOluyaKsgMFvi8EMyoBfpy10oiI)
