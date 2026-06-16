@@ -5,4 +5,8 @@ python-json-logger==2.0.2
 mmh3==3.0.0
 gevent
 gunicorn
-scikit-learn
+scikit-learn==1.8.0
+joblib
+pandas
+numpy
+Werkzeug==2.2.2
