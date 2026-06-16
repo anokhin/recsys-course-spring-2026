@@ -4,15 +4,17 @@ import time
 import atexit
 from dataclasses import asdict
 from datetime import datetime
+from types import SimpleNamespace
 
+import redis as redis_module
 from flask import Flask
-from flask_redis import Redis
 from flask_restful import Resource, Api, abort, reqparse
 from gevent.pywsgi import WSGIServer
 
 from botify.data import DataLogger, Datum
 from botify.experiment import Experiments, Treatment
 from botify.recommenders.i2i import I2IRecommender
+from botify.recommenders.ml_ranker import MLRanker
 from botify.recommenders.random import Random
 from botify.recommenders.indexed import Indexed
 from botify.recommenders.sticky_artist import StickyArtist
@@ -25,13 +27,18 @@ app = Flask(__name__)
 app.config.from_file("config.json", load=json.load)
 api = Api(app)
 
-tracks_redis = Redis(app, config_prefix="REDIS_TRACKS")
-artists_redis = Redis(app, config_prefix="REDIS_ARTIST")
-listen_history_redis = Redis(app, config_prefix="REDIS_LISTEN_HISTORY")
-recommendations_lfm_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_LFM")
-recommendations_contextual_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_SASREC")
 
-recommendations_hstu_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_HSTU")
+def _redis(url: str):
+    """Thin wrapper that exposes a .connection attribute for redis-py client."""
+    return SimpleNamespace(connection=redis_module.Redis.from_url(url))
+
+
+tracks_redis = _redis(app.config["REDIS_TRACKS_URL"])
+artists_redis = _redis(app.config["REDIS_ARTIST_URL"])
+listen_history_redis = _redis(app.config["REDIS_LISTEN_HISTORY_URL"])
+recommendations_lfm_redis = _redis(app.config["REDIS_RECOMMENDATIONS_LFM_URL"])
+recommendations_contextual_redis = _redis(app.config["REDIS_RECOMMENDATIONS_SASREC_URL"])
+recommendations_hstu_redis = _redis(app.config["REDIS_RECOMMENDATIONS_HSTU_URL"])
 
 data_logger = DataLogger(app)
 atexit.register(data_logger.close)
@@ -74,6 +81,19 @@ sasrec_i2i_recommender = I2IRecommender(
     random_recommender,
 )
 
+try:
+    ml_ranker = MLRanker(
+        listen_history_redis.connection,
+        recommendations_contextual_redis.connection,
+        tracks_redis.connection,
+        app.config["ML_RANKER_MODEL_PATH"],
+        sasrec_i2i_recommender,
+    )
+    app.logger.info("MLRanker loaded successfully")
+except Exception as e:
+    app.logger.warning(f"MLRanker not available ({e}), using SasRec as treatment fallback")
+    ml_ranker = sasrec_i2i_recommender
+
 parser = reqparse.RequestParser()
 parser.add_argument("track", type=int, location="json", required=True)
 parser.add_argument("time", type=float, location="json", required=True)
@@ -112,16 +132,19 @@ class NextTrack(Resource):
         args = parser.parse_args()
         persist_user_listen_history(user, args.track, args.time)
 
-        treatment = Experiments.HSTU.assign(user)
+        treatment = Experiments.ML_RANKER.assign(user)
 
         if treatment == Treatment.C:
             recommender = sasrec_i2i_recommender
         elif treatment == Treatment.T1:
-            recommender = Indexed(recommendations_hstu_redis.connection, catalog, random_recommender)
+            recommender = ml_ranker
         else:
             recommender = random_recommender
 
-        recommendation = recommender.recommend_next(user, args.track, args.time)
+        try:
+            recommendation = recommender.recommend_next(user, args.track, args.time)
+        except Exception:
+            recommendation = random_recommender.recommend_next(user, args.track, args.time)
 
         data_logger.log(
             "next",
