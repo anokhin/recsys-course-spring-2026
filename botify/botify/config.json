@@ -26,6 +26,12 @@
   "REDIS_RECOMMENDATIONS_HSTU_DB": 5,
   "RECOMMENDATIONS_HSTU_FILE_PATH": "./data/hstu_recommendations.json",
 
+  "REDIS_RECOMMENDATIONS_USER_TOP_HOST": "redis",
+  "REDIS_RECOMMENDATIONS_USER_TOP_PORT": 6379,
+  "REDIS_RECOMMENDATIONS_USER_TOP_DB": 6,
+  "RECOMMENDATIONS_USER_TOP_FILE_PATH": "./data/user_top_recommendations.json",
+  "SESSION_VALUE_MODEL_FILE_PATH": "./data/session_value_model.json",
+
   "TRACKS_CATALOG": "./data/tracks.json",
   "DATA_LOG_FILE": "./log/data.json",
   "DATA_LOG_FILE_MAX_BYTES": 104857600,
