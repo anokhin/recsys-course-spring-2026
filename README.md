@@ -1,98 +1,150 @@
-# Рекомендательные Системы в Продакшене
+# Homework 2 Report
 
-# О Курсе
+## Abstract
 
-Курс посвящен реально работающим рекомендательным сервисам.
-Они помогают нам находить друзей в социальных сетях, заказывать вкусную еду или выбрать сериал на вечер.
-А мы знаем о них слишком мало.
-Настало время это исправить! 
+The goal of this homework was to improve the Botify recommendation service and outperform the baseline `SasRec-I2I` in an honest online A/B test using `mean_time_per_session` as the target metric.
 
-В рамках этого курса мы расскажем, как рекомендательные системы выбирают лучшее персонально для вас и какие данные им для этого нужны.
-Обсудим перспективные направления (диплернинг!) и проблемы, которые есть у современных рекомендеров.
-В отличие от других курсов по рекомендациям, мы не ограничимся только моделями машинного обучения и метриками.
-Мы углубимся в вопросы бизнеса, архитектуры боевых рекомендеров и поддержание долгосрочного здоровья рекомендательных систем.
-А на практической части вы напишете свой музыкальный рекомендер, который будет максимально похож на боевой.
+My final solution is a **session-aware online ML ranker** with a **conservative gating policy**. The control group uses the original `SasRec-I2I` without modifications. The treatment group builds a small candidate set from multiple item-to-item sources and applies a trained ML model to rerank them using short-term session context. The model is only allowed to override the baseline recommendation when its confidence is sufficiently high. This makes the system more stable and reduces harmful aggressive replacements.
 
-## Что нужно знать **до начала** курса
+According to the automatic evaluation, the final solution achieved a statistically significant improvement over control and passed reproducibility checks.
 
-### Базовая математика
+---
 
-- Операции над векторами и матрицами.
-- Дифференцирование и нахождение минимумов функций.
-- Базовые алгоритмы и структуры данных.
+## Method
 
-### Основы машинного обучения
+### 1. Control
 
-- Постановка задачи ML, классические алгоритмы.
-- Базовое представление о том как работают современные нейронные сети.
+The control group is the original `SasRec-I2I` recommender.
 
-### Технические скиллы
+### 2. Treatment
 
-- Знание языка python.
-- Знакомство с архитектурой высоконагруженных сервисов (БД + Big Data).
-- Умение писать простые запросы на PySpark.
-- Знакомство с Docker, умение запустить контейнер.
-- Умение пользоваться git. 
+The treatment group uses an online recommender implemented in:
 
-Если вы не знакомы с какими-то из перечисленных тем, 
-то можно будет наверстать самостоятельно по мере прохождения курса.
-На семинарах мы стараемся всем помогать, но мы не сможем уделять этому много времени.
-Поэтому при изучении тем из этого пункта рассчитывайте в основном на себя.
+- `botify/botify/recommenders/session_gate_ranker.py`
 
-## Лекции
+Its logic is the following:
 
-Программа курса и слайды лекций лежат в папке [slides](slides).
+1. Read the recent user listening history from Redis.
+2. Build a candidate pool from:
+   - `SasRec-I2I`
+   - `LightFM-I2I`
+3. Compute session-aware features for every candidate.
+4. Score candidates with a trained logistic regression model.
+5. Compare the best ML candidate with the baseline recommendation.
+6. Override the baseline only if several conservative gating conditions are satisfied.
 
-## Практика
+This is not a heuristic replacement table. The final decision in treatment is made by an ML model working online on top of the current user session.
 
-Практическая часть курса построена вокруг музыкального рекомендера **botify**. 
-На семинарах и в домашках мы будем развивать и анализировать этот рекомендер.
+---
 
-### Prerequisites
+## Feature design
 
-- Установить docker
-- Сделать virtualenv c python (я использую версию 3.7)
-- Вспомнить как пользоваться вашей любимой средой разработки (я использую PyCharm)
+The model uses features that describe both the current session state and the candidate quality.
 
-### Общее описание задачи
+### Session features
 
-Пользователи приходят в музыкальный сервис **botify**, чтобы послушать музыку.
-Сперва пользователь сам выбирает начальный трек.
-Когда пользователь прослушал этот трек, сервис рекомендует следующий.
-Пользователь может послушать рекомендованный трек или скипнуть его и перейти к следующему.
-Либо пользователю может надоесть и он уйдет.
-Как поступит пользователь зависит от качества рекомендаций: если они плохие - пользователь быстро уйдет; если хорошие – "залипнет".
-Последовательность прослушанных пользователем треков мы будем называть "сессией".
-На диаграмме ниже показан процесс одной сессии.  
+- history length
+- average recent listening time
+- listening time of the previous track
+- fraction of “good” recent listens
+- fraction of recent skips
 
-![Взаимодействие пользователя с рекомендером botify](user-flow.png)
+### Candidate–history interaction features
 
-Цель сервиса **botify** – максимально долго удерживать пользователя.
-Возможно, мы зарабатываем на рекламе или просто хотим набрать аудиторию.
-Сервис меряет процент прослушки каждого трека из сессии и суммирует эти проценты, чтобы получить общую длину сессии (пренебрегаем тем, что треки могут длиться разное время – обычно песни длятся около 3 минут).
-Качество рекомендаций напрямую влияет на то, сколько треков послушают пользователи и какой будет процент их прослушки.
-Следовательно качество рекомендаций влияет на длину сессии и на успех всего сервиса в целом.
+- whether candidate artist matches the previous track artist
+- whether candidate title prefix is similar to previous track title
+- how often candidate artist appeared recently
 
-### Что есть в репозитории
+### Retrieval-source features
 
-#### botify
+- number of times the candidate appears in recent `SasRec` neighbors
+- number of times the candidate appears in recent `LightFM` neighbors
+- weighted inverse-rank signals from both sources
+- agreement between retrieval sources
 
-В этом модуле лежит заготовка сервиса рекомендера. 
-В рамках заданий работать нужно будет над кодом из этого модуля.
+These features are designed to capture whether a candidate is suitable for the current short-term session context, instead of only predicting the next track ID.
 
-[Описание и инструкции](botify/README.md)
+---
 
-#### sim
+## Training
 
-Так как наш рекомендер учебный, он не развернут для реальных пользователей. 
-Но мы хотим экспериментировать с рекомендером как с настоящим.
-Для этого в модуле sim реализован симулятор пользователя.
-Запуская симулятор, мы генерируем трафик, похожий на трафик, который генерируют реальные пользователи.
+The training script is:
 
-[Описание и инструкции](sim/README.md)
+- `botify/train_session_gate_ranker.py`
 
-#### jupyter
+Training data comes from logged Botify interactions collected from the simulator through the service itself.
 
-Ноутбуки с подготовкой данных для симулятора, визуализацией и всем таким.
+Only **control-group logs** are used for training. For every session state, a candidate set is built from `SasRec` and `LightFM`. A positive example is defined as the true next track in cases where the next listening time is sufficiently high. Other candidates from the same candidate pool are treated as negatives.
 
+The model is trained with:
+
+- `StandardScaler`
+- `LogisticRegression`
+
+User-based splitting is used during validation to reduce leakage between train and validation parts.
+
+The trained model is stored in:
+
+- `botify/session_gate_ranker_bundle.joblib`
+
+---
+
+## Conservative gating
+
+A key part of the final solution is that treatment does **not** blindly replace the baseline.
+
+The model is allowed to override the baseline only when:
+
+- the previous listening time is high enough,
+- the predicted score is above an absolute threshold,
+- the predicted score is better than the baseline score by a margin,
+- the replacement does not create an overly repetitive artist pattern.
+
+If these conditions are not satisfied, the system returns the original baseline recommendation.
+
+This conservative policy turned out to be important for stability and reproducibility.
+
+---
+
+## Online integration
+
+The online service was modified in:
+
+- `botify/botify/server.py`
+- `botify/botify/config.json`
+
+The Docker environment was updated so the recommender can load the model and required dependencies correctly:
+
+- `botify/Dockerfile`
+- `botify/requirements.txt`
+
+---
+
+## Results
+
+Automatic evaluation produced the following result:
+
+- Run 1 effect: **+19.9%**
+- Run 2 effect: **+21.76%**
+- Reproducibility delta: **1.86%** (threshold 10%)
+
+Final A/B result:
+
+- Control beaten: **yes**
+- Significant (`p < 0.05`): **yes**
+- Lift (`mean_time_per_session`): **+19.9%**
+
+Automatic score:
+
+- **35 / 35**
+
+Thus, the final method successfully improves the target metric and remains reproducible across repeated runs.
+
+---
+
+## Conclusion
+
+The final solution is an **online session-aware ML reranker with conservative gating**. Unlike static recommendation files, it uses the current short-term session context, combines multiple retrieval sources, and only overrides the baseline in high-confidence situations.
+
+This approach achieved a statistically significant and reproducible improvement over `SasRec-I2I` on the target metric `mean_time_per_session`, while remaining simple enough to serve online inside Botify.
 
