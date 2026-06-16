@@ -17,6 +17,7 @@ from botify.recommenders.random import Random
 from botify.recommenders.indexed import Indexed
 from botify.recommenders.sticky_artist import StickyArtist
 from botify.track import Catalog
+from botify.recommenders.smart_i2i import SmartI2IRecommender
 
 root = logging.getLogger()
 root.setLevel("INFO")
@@ -30,8 +31,8 @@ artists_redis = Redis(app, config_prefix="REDIS_ARTIST")
 listen_history_redis = Redis(app, config_prefix="REDIS_LISTEN_HISTORY")
 recommendations_lfm_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_LFM")
 recommendations_contextual_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_SASREC")
-
 recommendations_hstu_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_HSTU")
+recommendations_svd_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_SVD")
 
 data_logger = DataLogger(app)
 atexit.register(data_logger.close)
@@ -41,7 +42,6 @@ catalog.upload_tracks(tracks_redis.connection)
 catalog.upload_artists(artists_redis.connection)
 
 random_recommender = Random(tracks_redis.connection)
-sticky_artist_recommender = StickyArtist(tracks_redis, artists_redis, catalog)
 
 catalog.upload_recommendations(
     recommendations_lfm_redis.connection,
@@ -67,10 +67,22 @@ catalog.upload_recommendations(
     "RECOMMENDATIONS_HSTU_FILE_PATH"
 )
 
+catalog.upload_recommendations(
+    recommendations_svd_redis.connection,
+    "RECOMMENDATIONS_SVD_FILE_PATH",
+    key_object="item_id",
+    key_recommendations="recommendations",
+)
 
 sasrec_i2i_recommender = I2IRecommender(
     listen_history_redis.connection,
     recommendations_contextual_redis.connection,
+    random_recommender,
+)
+
+svd_i2i_recommender = SmartI2IRecommender(
+    listen_history_redis.connection,
+    recommendations_svd_redis.connection,
     random_recommender,
 )
 
@@ -117,7 +129,7 @@ class NextTrack(Resource):
         if treatment == Treatment.C:
             recommender = sasrec_i2i_recommender
         elif treatment == Treatment.T1:
-            recommender = Indexed(recommendations_hstu_redis.connection, catalog, random_recommender)
+            recommender = svd_i2i_recommender
         else:
             recommender = random_recommender
 
