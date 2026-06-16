@@ -25,6 +25,8 @@
   "REDIS_RECOMMENDATIONS_HSTU_PORT": 6379,
   "REDIS_RECOMMENDATIONS_HSTU_DB": 5,
   "RECOMMENDATIONS_HSTU_FILE_PATH": "./data/hstu_recommendations.json",
+  "LATENT_SESSION_MODEL_FILE_PATH": "./data/latent_session_model.pkl",
+  "SESSION_BLEND_MODEL_FILE_PATH": "./data/session_blend_model.pkl",
 
   "TRACKS_CATALOG": "./data/tracks.json",
   "DATA_LOG_FILE": "./log/data.json",

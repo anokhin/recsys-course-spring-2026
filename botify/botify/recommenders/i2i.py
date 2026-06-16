@@ -1,4 +1,5 @@
 import json
+import math
 import pickle
 import random
 from collections import defaultdict
@@ -22,17 +23,21 @@ class I2IRecommender(Recommender):
                 track_time[track] += listened_time
 
             anchors = list(track_time.keys())
-            weights = [track_time[track] for track in anchors]
-
             while anchors:
-                anchor = random.choices(anchors, weights=weights, k=1)[0]
+                weights = []
+                for track in anchors:
+                    value = float(track_time[track])
+                    weights.append(value if math.isfinite(value) and value > 0 else 0.0)
+                if any(weight > 0 for weight in weights):
+                    anchor = random.choices(anchors, weights=weights, k=1)[0]
+                else:
+                    anchor = random.choice(anchors)
                 candidate = self._recommend_from_anchor(anchor, seen_tracks)
                 if candidate is not None:
                     return candidate
 
                 anchor_idx = anchors.index(anchor)
                 anchors.pop(anchor_idx)
-                weights.pop(anchor_idx)
 
         return self.fallback_recommender.recommend_next(user, prev_track, prev_track_time)
 
@@ -53,7 +58,7 @@ class I2IRecommender(Recommender):
         if data is None:
             return None
 
-        recommendations = pickle.loads(data)
+        recommendations = data if isinstance(data, (list, tuple)) else pickle.loads(data)
         for track in recommendations:
             candidate = int(track)
             if candidate not in seen_tracks:
