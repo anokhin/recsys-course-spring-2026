@@ -33,3 +33,10 @@ botify/data/*.json
 *.synctex.gz
 *.nav
 *.snm
+data_logs*/
+sim/data/
+*.zip
+*.pkl
+*.pth
+__pycache__/
+.DS_Store
