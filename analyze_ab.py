@@ -143,11 +143,26 @@ def main():
         .to_string(index=False)
     )
 
+    # Ключевая метрика домашки
+    key = next((e for e in effects if e["metric"] == "mean_time_per_session"), None)
+    summary = {
+        "all_effects": effects,
+        "beat_control": bool(key and key["effect_pct"] > 0),
+        "significant": bool(key and key.get("significant")),
+        "lift_pct": None if key is None else key["effect_pct"],
+        "metric": "mean_time_per_session",
+    }
+
     out = Path(args.output)
     out.parent.mkdir(parents=True, exist_ok=True)
     with open(out, "w") as f:
-        json.dump({"all_effects": effects}, f, indent=2, ensure_ascii=False)
+        json.dump(summary, f, indent=2, ensure_ascii=False)
     print(f"\n💾 {out}")
+    if key is not None:
+        print(
+            f"mean_time_per_session: lift={key['effect_pct']:+.2f}% "
+            f"significant={key['significant']}"
+        )
 
 
 if __name__ == "__main__":

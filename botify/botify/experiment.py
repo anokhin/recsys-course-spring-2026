@@ -66,6 +66,8 @@ class Experiments:
     AA = Experiment("AA", Split.HALF_HALF)
     I2I = Experiment("I2I", Split.THREE_WAY)
     HSTU = Experiment("HSTU", Split.HALF_HALF)
+    # HW2: control = SasRec-I2I, treatment = Track2Vec Diverse-I2I
+    TRACK2VEC = Experiment("TRACK2VEC", Split.HALF_HALF)
 
     def __init__(self):
-        self.experiments = [Experiments.HSTU]
+        self.experiments = [Experiments.TRACK2VEC]

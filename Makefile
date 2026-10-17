@@ -6,6 +6,9 @@ VENV   = .venv
 PYTHON = $(VENV)/bin/python
 PIP    = $(VENV)/bin/pip
 
+# Локально часто есть только docker-compose, в CI — docker compose
+DOCKER_COMPOSE ?= $(shell docker compose version >/dev/null 2>&1 && echo "docker compose" || echo "docker-compose")
+
 .PHONY: setup run clean
 
 setup:
@@ -13,8 +16,8 @@ setup:
 	$(PIP) install --upgrade pip --timeout 120 -q
 	$(PIP) install -r sim/requirements.txt --timeout 120 -q
 	$(PIP) install -r botify/requirements.txt --timeout 120 -q
-	cd botify && docker compose down -v --remove-orphans 2>/dev/null || true
-	cd botify && docker compose up -d --build --force-recreate --scale recommender=2
+	cd botify && $(DOCKER_COMPOSE) down -v --remove-orphans 2>/dev/null || true
+	cd botify && $(DOCKER_COMPOSE) up -d --build --force-recreate --scale recommender=2
 	sleep 20
 
 run:
@@ -27,6 +30,6 @@ run:
 	$(PYTHON) analyze_ab.py --data $(DATA_DIR) --output $(DATA_DIR)/ab_result.json
 
 clean:
-	cd botify && docker compose down -v --remove-orphans 2>/dev/null || true
+	cd botify && $(DOCKER_COMPOSE) down -v --remove-orphans 2>/dev/null || true
 	rm -rf $(VENV)
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
