@@ -62,10 +62,12 @@ class Experiments:
     A static container for all the existing experiments.
     """
 
-    STICKY_ARTIST = Experiment("STICKY_ARTIST", Split.HALF_HALF)
     AA = Experiment("AA", Split.HALF_HALF)
-    I2I = Experiment("I2I", Split.THREE_WAY)
-    HSTU = Experiment("HSTU", Split.HALF_HALF)
+    STICKY_ARTIST = Experiment("STICKY_ARTIST", Split.FOUR_WAY)
+    USER_BASED = Experiment("USER_BASED", Split.HALF_HALF)
+    CONTEXTUAL = Experiment("CONTEXTUAL", Split.HALF_HALF)
+    HW2 = Experiment("HW2", Split.HALF_HALF)
 
     def __init__(self):
-        self.experiments = [Experiments.HSTU]
+        # Only the active experiment must be logged so analyze_ab picks it.
+        self.experiments = [Experiments.HW2]

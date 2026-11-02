@@ -1,61 +1,59 @@
-import json
 import pickle
 import random
-from collections import defaultdict
+from typing import List, Tuple
 
 from .recommender import Recommender
 
 
 class I2IRecommender(Recommender):
-    def __init__(self, listen_history_redis, i2i_redis, fallback_recommender):
-        self.listen_history_redis = listen_history_redis
-        self.i2i_redis = i2i_redis
-        self.fallback_recommender = fallback_recommender
+    """
+    Item-to-item recommender with per-user listening history in Redis.
+
+    Samples a context track from history proportional to listen time,
+    then returns a neighbor that the user has not heard yet.
+    """
+
+    def __init__(self, recommendations_redis, history_redis, catalog, fallback):
+        self.recommendations_redis = recommendations_redis
+        self.history_redis = history_redis
+        self.catalog = catalog
+        self.fallback = fallback
+
+    def _load_history(self, user: int) -> List[Tuple[int, float]]:
+        raw = self.history_redis.get(user)
+        if raw is None:
+            return []
+        return pickle.loads(raw)
+
+    def _save_history(self, user: int, history: List[Tuple[int, float]]) -> None:
+        # Keep history bounded for memory / latency
+        self.history_redis.set(user, pickle.dumps(history[-200:]))
+
+    def _sample_context(self, history: List[Tuple[int, float]], prev_track: int) -> int:
+        if not history:
+            return prev_track
+        tracks, weights = zip(*history)
+        # Zero/negative times would break random.choices
+        safe_weights = [max(float(w), 1e-6) for w in weights]
+        return random.choices(list(tracks), weights=safe_weights, k=1)[0]
 
     def recommend_next(self, user: int, prev_track: int, prev_track_time: float) -> int:
-        history = self._load_user_history(user)
-        seen_tracks = set(track for track, _ in history)
+        history = self._load_history(user)
+        history.append((int(prev_track), float(prev_track_time)))
+        self._save_history(user, history)
 
-        if history:
-            track_time = defaultdict(float)
-            for track, listened_time in history:
-                track_time[track] += listened_time
+        context = self._sample_context(history, prev_track)
+        raw = self.recommendations_redis.get(context)
+        if raw is None:
+            return self.fallback.recommend_next(user, prev_track, prev_track_time)
 
-            anchors = list(track_time.keys())
-            weights = [track_time[track] for track in anchors]
+        neighbors = list(self.catalog.from_bytes(raw))
+        heard = {track for track, _ in history}
+        candidates = [item for item in neighbors if item not in heard]
+        if not candidates:
+            candidates = [item for item in neighbors if item != prev_track]
+        if not candidates:
+            return self.fallback.recommend_next(user, prev_track, prev_track_time)
 
-            while anchors:
-                anchor = random.choices(anchors, weights=weights, k=1)[0]
-                candidate = self._recommend_from_anchor(anchor, seen_tracks)
-                if candidate is not None:
-                    return candidate
-
-                anchor_idx = anchors.index(anchor)
-                anchors.pop(anchor_idx)
-                weights.pop(anchor_idx)
-
-        return self.fallback_recommender.recommend_next(user, prev_track, prev_track_time)
-
-    def _load_user_history(self, user: int):
-        key = f"user:{user}:listens"
-        raw_entries = self.listen_history_redis.lrange(key, 0, -1)
-
-        history = []
-        for raw in raw_entries:
-            if isinstance(raw, bytes):
-                raw = raw.decode("utf-8")
-            entry = json.loads(raw)
-            history.append((int(entry["track"]), float(entry["time"])))
-        return history
-
-    def _recommend_from_anchor(self, anchor: int, seen_tracks):
-        data = self.i2i_redis.get(anchor)
-        if data is None:
-            return None
-
-        recommendations = pickle.loads(data)
-        for track in recommendations:
-            candidate = int(track)
-            if candidate not in seen_tracks:
-                return candidate
-        return None
+        random.shuffle(candidates)
+        return int(candidates[0])
