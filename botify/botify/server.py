@@ -1,10 +1,12 @@
+import atexit
 import json
 import logging
+import os
 import time
-import atexit
 from dataclasses import asdict
 from datetime import datetime
 
+import numpy as np
 from flask import Flask
 from flask_redis import Redis
 from flask_restful import Resource, Api, abort, reqparse
@@ -13,8 +15,8 @@ from gevent.pywsgi import WSGIServer
 from botify.data import DataLogger, Datum
 from botify.experiment import Experiments, Treatment
 from botify.recommenders.i2i import I2IRecommender
+from botify.recommenders.ranked_i2i import RankedI2IRecommender
 from botify.recommenders.random import Random
-from botify.recommenders.indexed import Indexed
 from botify.recommenders.sticky_artist import StickyArtist
 from botify.track import Catalog
 
@@ -27,11 +29,8 @@ api = Api(app)
 
 tracks_redis = Redis(app, config_prefix="REDIS_TRACKS")
 artists_redis = Redis(app, config_prefix="REDIS_ARTIST")
-listen_history_redis = Redis(app, config_prefix="REDIS_LISTEN_HISTORY")
-recommendations_lfm_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_LFM")
-recommendations_contextual_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_SASREC")
-
-recommendations_hstu_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_HSTU")
+recommendations_sasrec_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_SASREC")
+user_history_redis = Redis(app, config_prefix="REDIS_USER_HISTORY")
 
 data_logger = DataLogger(app)
 atexit.register(data_logger.close)
@@ -40,52 +39,46 @@ catalog = Catalog(app).load(app.config["TRACKS_CATALOG"])
 catalog.upload_tracks(tracks_redis.connection)
 catalog.upload_artists(artists_redis.connection)
 
-random_recommender = Random(tracks_redis.connection)
-sticky_artist_recommender = StickyArtist(tracks_redis, artists_redis, catalog)
 
-catalog.upload_recommendations(
-    recommendations_lfm_redis.connection,
-    "RECOMMENDATIONS_LFM_FILE_PATH",
-    key_object="item_id",
-    key_recommendations="recommendations",
-)
-lightfm_i2i_recommender = I2IRecommender(
-    listen_history_redis.connection,
-    recommendations_lfm_redis.connection,
-    random_recommender,
-)
-
-catalog.upload_recommendations(
-    recommendations_contextual_redis.connection,
-    "RECOMMENDATIONS_SASREC_FILE_PATH",
-    key_object="item_id",
-    key_recommendations="recommendations",
-)
-
-catalog.upload_recommendations(
-    recommendations_hstu_redis.connection,
-    "RECOMMENDATIONS_HSTU_FILE_PATH"
-)
+def _maybe_upload_recommendations(redis_conn, config_key: str) -> bool:
+    path = app.config.get(config_key)
+    if not path or not os.path.exists(path):
+        app.logger.warning(
+            "Recommendations file for %s not found (%s); skipping upload",
+            config_key,
+            path,
+        )
+        return False
+    catalog.upload_recommendations(
+        redis_conn,
+        config_key,
+        key_object="item_id",
+        key_recommendations="recommendations",
+    )
+    return True
 
 
-sasrec_i2i_recommender = I2IRecommender(
-    listen_history_redis.connection,
-    recommendations_contextual_redis.connection,
-    random_recommender,
+HAS_SASREC = _maybe_upload_recommendations(
+    recommendations_sasrec_redis.connection, "RECOMMENDATIONS_SASREC_FILE_PATH"
 )
+
+CONTEXT_EMB = None
+TRACK_EMB = None
+context_emb_path = app.config.get("CONTEXT_EMB_PATH", "./data/context_emb.npy")
+track_emb_path = app.config.get("TRACK_EMB_PATH", "./data/track_emb.npy")
+if os.path.exists(context_emb_path) and os.path.exists(track_emb_path):
+    CONTEXT_EMB = np.load(context_emb_path)
+    TRACK_EMB = np.load(track_emb_path)
+    app.logger.info(
+        "Loaded ranker embeddings context=%s track=%s",
+        CONTEXT_EMB.shape,
+        TRACK_EMB.shape,
+    )
+HAS_RANKER = CONTEXT_EMB is not None and TRACK_EMB is not None
 
 parser = reqparse.RequestParser()
 parser.add_argument("track", type=int, location="json", required=True)
 parser.add_argument("time", type=float, location="json", required=True)
-
-LISTEN_HISTORY_LIMIT = 10
-
-
-def persist_user_listen_history(user: int, track: int, track_time: float):
-    user_history_key = f"user:{user}:listens"
-    history_entry = json.dumps({"track": track, "time": track_time})
-    listen_history_redis.connection.lpush(user_history_key, history_entry)
-    listen_history_redis.connection.ltrim(user_history_key, 0, LISTEN_HISTORY_LIMIT - 1)
 
 
 class Hello(Resource):
@@ -93,6 +86,8 @@ class Hello(Resource):
         return {
             "status": "alive",
             "message": "welcome to botify, the best toy music recommender",
+            "has_sasrec": HAS_SASREC,
+            "has_ranker": HAS_RANKER,
         }
 
 
@@ -108,18 +103,33 @@ class Track(Resource):
 class NextTrack(Resource):
     def post(self, user: int):
         start = time.time()
-
         args = parser.parse_args()
-        persist_user_listen_history(user, args.track, args.time)
 
-        treatment = Experiments.HSTU.assign(user)
+        fallback = Random(tracks_redis.connection)
+        sticky = StickyArtist(
+            tracks_redis.connection, artists_redis.connection, catalog
+        )
 
-        if treatment == Treatment.C:
-            recommender = sasrec_i2i_recommender
-        elif treatment == Treatment.T1:
-            recommender = Indexed(recommendations_hstu_redis.connection, catalog, random_recommender)
+        if not (HAS_SASREC and HAS_RANKER):
+            recommender = sticky
         else:
-            recommender = random_recommender
+            treatment = Experiments.HW2.assign(user)
+            if treatment == Treatment.T1:
+                recommender = RankedI2IRecommender(
+                    recommendations_sasrec_redis.connection,
+                    user_history_redis.connection,
+                    catalog,
+                    fallback,
+                    CONTEXT_EMB,
+                    TRACK_EMB,
+                )
+            else:
+                recommender = I2IRecommender(
+                    recommendations_sasrec_redis.connection,
+                    user_history_redis.connection,
+                    catalog,
+                    fallback,
+                )
 
         recommendation = recommender.recommend_next(user, args.track, args.time)
 
@@ -141,7 +151,6 @@ class LastTrack(Resource):
     def post(self, user: int):
         start = time.time()
         args = parser.parse_args()
-        persist_user_listen_history(user, args.track, args.time)
         data_logger.log(
             "last",
             Datum(
@@ -150,7 +159,7 @@ class LastTrack(Resource):
                 args.track,
                 args.time,
                 time.time() - start,
-            )
+            ),
         )
         return {"user": user}
 
@@ -160,7 +169,9 @@ api.add_resource(Track, "/track/<int:track>")
 api.add_resource(NextTrack, "/next/<int:user>")
 api.add_resource(LastTrack, "/last/<int:user>")
 
-app.logger.info(f"Botify service stared")
+app.logger.info(
+    "Botify service started (sasrec=%s, ranker=%s)", HAS_SASREC, HAS_RANKER
+)
 
 if __name__ == "__main__":
     http_server = WSGIServer(("", 5001), app)

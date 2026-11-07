@@ -107,7 +107,7 @@ def download_logs(command_args):
     )
 
     if os.path.exists(local_dir):
-        os.rmdir(local_dir)
+        shutil.rmtree(local_dir)
     os.makedirs(local_dir)
 
     recommenders = [
