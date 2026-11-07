@@ -69,5 +69,4 @@ class Experiments:
     HW2 = Experiment("HW2", Split.HALF_HALF)
 
     def __init__(self):
-        # Only the active experiment must be logged so analyze_ab picks it.
         self.experiments = [Experiments.HW2]

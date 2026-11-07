@@ -1,17 +1,12 @@
 #!/usr/bin/env python3
-"""
-Train SasRec-I2I (control) and ContextualRanker-I2I (treatment) from botify logs.
+"""Train SasRec-I2I and ContextualRanker from botify logs.
 
-Usage:
-  python jupyter/train_hw2.py --logs data/coldstart --out botify/data
+python jupyter/train_hw2.py --logs data/coldstart --out botify/data
 """
-
-from __future__ import annotations
 
 import argparse
 import glob
 import json
-import os
 import random
 from pathlib import Path
 
@@ -36,18 +31,15 @@ def read_logs(data_dir: Path) -> pd.DataFrame:
 def sessionize(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
-    # Fallback: already-numeric ms timestamps
     if df["timestamp"].isna().all():
         df["timestamp"] = pd.to_numeric(df["timestamp"], errors="coerce")
     else:
         df["timestamp"] = (df["timestamp"].astype("int64") // 10**6).astype("int64")
 
     df = df.sort_values(["user", "timestamp"])
-    # Session id increments after each "last"
     df["session"] = df.groupby("user")["message"].transform(
         lambda s: (s == "last").astype(int).cumsum().shift(fill_value=0)
     )
-    # First track of each session
     df["start"] = df.groupby(["user", "session"])["track"].transform("first")
     out = df[["user", "session", "track", "time", "timestamp", "start", "message"]].copy()
     out["user"] = out["user"].astype(int)
@@ -58,7 +50,6 @@ def sessionize(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def i2i_to_jsonl(pairs, path: Path, k: int = 50):
-    """pairs: iterable of (item_id, list of neighbor ids ranked)."""
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w") as f:
         for item_id, neighbors in pairs:
@@ -74,7 +65,6 @@ def i2i_to_jsonl(pairs, path: Path, k: int = 50):
 
 
 class MiniSASRec(nn.Module):
-    """Lightweight SASRec-style sequential encoder for item embeddings / I2I."""
 
     def __init__(self, n_items: int, dim: int = 64, n_heads: int = 4, max_len: int = 50, dropout: float = 0.2):
         super().__init__()
@@ -93,19 +83,16 @@ class MiniSASRec(nn.Module):
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, seq):
-        # seq: [B, L] with 0 padding
         b, l = seq.shape
         pos = torch.arange(l, device=seq.device).unsqueeze(0).expand(b, -1)
         x = self.dropout(self.item_emb(seq) + self.pos_emb(pos))
         key_padding = seq.eq(0)
-        # Causal mask
         causal = torch.triu(torch.ones(l, l, device=seq.device, dtype=torch.bool), diagonal=1)
         out = self.encoder(x, mask=causal, src_key_padding_mask=key_padding)
         return out
 
 
 def train_sasrec_i2i(interactions: pd.DataFrame, out_path: Path, k: int = 50):
-    """Train SASRec (rectools if available, else pure-torch MiniSASRec) and export I2I."""
     try:
         from rectools import Columns
         from rectools.dataset import Dataset
@@ -176,7 +163,7 @@ def train_sasrec_i2i(interactions: pd.DataFrame, out_path: Path, k: int = 50):
         raise RuntimeError("Not enough sessions for MiniSASRec")
 
     all_items = sorted({t for s in sessions for t in s})
-    item2idx = {t: i + 1 for i, t in enumerate(all_items)}  # 0 = pad
+    item2idx = {t: i + 1 for i, t in enumerate(all_items)}
     idx2item = {i: t for t, i in item2idx.items()}
     n_items = len(all_items)
     max_len = 50
@@ -211,8 +198,8 @@ def train_sasrec_i2i(interactions: pd.DataFrame, out_path: Path, k: int = 50):
         total, n = 0.0, 0
         for xs, ys in loader:
             xs, ys = xs.to(device), ys.to(device)
-            out = model(xs)[:, -1, :]  # last position
-            logits = out @ model.item_emb.weight[1:].T  # skip pad
+            out = model(xs)[:, -1, :]
+            logits = out @ model.item_emb.weight[1:].T
             loss = F.cross_entropy(logits, ys - 1)
             opt.zero_grad()
             loss.backward()
@@ -253,9 +240,6 @@ class ContextualRanker(nn.Module):
 
 
 def train_contextual_i2i(interactions: pd.DataFrame, out_path: Path, k: int = 50, dim: int = 64):
-    # Use continuous listen time pairs (start, track) -> time
-    pairs = interactions[interactions["message"] != "last"].copy()
-    # Also keep last events; they still have time
     pairs = interactions.copy()
     pairs = pairs.dropna(subset=["start", "track", "time"])
     pairs = pairs[pairs["start"] != pairs["track"]]
@@ -328,13 +312,11 @@ def train_contextual_i2i(interactions: pd.DataFrame, out_path: Path, k: int = 50
 
     context_emb = model.context.weight.detach().cpu().numpy().astype(np.float32)
     track_emb = model.track.weight.detach().cpu().numpy().astype(np.float32)
-    # Normalize for cosine / inner-product ranking stability
     track_emb = track_emb / (np.linalg.norm(track_emb, axis=1, keepdims=True) + 1e-8)
     context_emb = context_emb / (np.linalg.norm(context_emb, axis=1, keepdims=True) + 1e-8)
 
     print(f"Building I2I neighbors (k={k})...")
     pairs_out = []
-    # Batch matrix multiply for speed
     batch = 256
     for start in range(0, n_items, batch):
         end = min(start + batch, n_items)

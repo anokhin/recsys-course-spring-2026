@@ -8,8 +8,6 @@ from .recommender import Recommender
 
 
 class RankedI2IRecommender(Recommender):
-    """SasRec candidates + ContextualRanker softmax re-ranking."""
-
     def __init__(
         self,
         recommendations_redis,
@@ -40,7 +38,6 @@ class RankedI2IRecommender(Recommender):
     def _sample_context(self, history: List[Tuple[int, float]], prev_track: int) -> int:
         if not history:
             return prev_track
-        # Emphasize recent high-time tracks.
         recent = history[-20:]
         tracks, weights = zip(*recent)
         safe_weights = [max(float(w), 1e-6) ** 1.5 for w in weights]
@@ -77,7 +74,6 @@ class RankedI2IRecommender(Recommender):
             return self.fallback.recommend_next(user, prev_track, prev_track_time)
 
         scores = np.array([self._score(context, c) for c in candidates], dtype=np.float64)
-        # Blend with a small uniform prior to avoid overconfidence.
         scores = scores - scores.max()
         probs = np.exp(scores / max(self.temperature, 1e-6))
         probs = 0.85 * (probs / probs.sum()) + 0.15 / len(candidates)

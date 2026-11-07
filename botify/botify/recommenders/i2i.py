@@ -6,13 +6,6 @@ from .recommender import Recommender
 
 
 class I2IRecommender(Recommender):
-    """
-    Item-to-item recommender with per-user listening history in Redis.
-
-    Samples a context track from history proportional to listen time,
-    then returns a neighbor that the user has not heard yet.
-    """
-
     def __init__(self, recommendations_redis, history_redis, catalog, fallback):
         self.recommendations_redis = recommendations_redis
         self.history_redis = history_redis
@@ -26,14 +19,12 @@ class I2IRecommender(Recommender):
         return pickle.loads(raw)
 
     def _save_history(self, user: int, history: List[Tuple[int, float]]) -> None:
-        # Keep history bounded for memory / latency
         self.history_redis.set(user, pickle.dumps(history[-200:]))
 
     def _sample_context(self, history: List[Tuple[int, float]], prev_track: int) -> int:
         if not history:
             return prev_track
         tracks, weights = zip(*history)
-        # Zero/negative times would break random.choices
         safe_weights = [max(float(w), 1e-6) for w in weights]
         return random.choices(list(tracks), weights=safe_weights, k=1)[0]
 
